@@ -31,6 +31,8 @@
 
 | 項目 | 既定値 | 保存先 |
 |---|---|---|
+| 推論バックエンドのモード | External | UserDefaults |
+| API 形式（Chat Completions / zenz） | Chat Completions | UserDefaults |
 | API Base URL（`/v1` まで） | `http://localhost:1234/v1` | UserDefaults |
 | Model ID | なし（必須） | UserDefaults |
 | API Key（任意） | なし | Keychain |
@@ -154,6 +156,23 @@ open -n Kanato.app --args -baseURL http://127.0.0.1:8765/v1 -model kanafilter-mo
 
 両プロセスを Xcode から同時に自動起動する仕組みは用意していません（それぞれのスキームで Run してください）。
 
+## ローカルモデル管理（準備中）
+
+将来のオンデバイス推論に向けて、モデル管理と推論バックエンドの切り替え基盤を用意しています。**ローカル推論エンジンは未実装で、モデルも未選定**です。動作するのは External（外部 API）だけです。詳細は [docs/local-models.md](docs/local-models.md) を参照してください。
+
+| 配布モード | 状態 |
+|---|---|
+| External（外部 API・既定） | 動作する。API 形式は Chat Completions（汎用 LLM）/ zenz（かな漢字変換モデル）を選択 |
+| Download（初回実行時に取得） | 取得・検証の基盤のみ。変換は「ローカル推論は未実装」エラー |
+| Embedded（同梱） | 無効。モデル選定とライセンス確認後に有効化する |
+
+- モデルの管理情報: `Kanato/LocalModels/model-manifest.json`（Model ID・配布元・revision・ファイルと SHA-256・ライセンスと再配布可否の確認状態・バックエンド・形式・量子化・必要メモリ）
+- 重みファイルは Git にコミットせず、アプリにも同梱しません（`.gitignore` で除外）
+- 開発用の取得: `scripts/download-model.sh --list` / `scripts/download-model.sh <MODEL_ID>`（保存先 `.models/`、ハッシュ検証つき）
+- 登録済み（評価用・ライセンス未確認）: zenz-v2.5-medium / Qwen3-1.7B (Q8_0) / Qwen3-4B (Q4_K_M)。評価では zenz が最良（19 文中 17 文一致、中央値 約 70 ms）
+- 試し方: `scripts/convert-model-gguf.sh zenz-v2.5-medium` → `scripts/serve-model.sh zenz-v2.5-medium --port 8801` → 設定で API 形式「zenz」、API Base URL `http://127.0.0.1:8801/v1`
+- 混入チェック: `scripts/check-model-artifacts.sh [Kanato.app]`
+
 ## 構成
 
 ```
@@ -164,6 +183,8 @@ Kanato/
 ├── Services/KanaServiceProvider.swift   # pasteboard 入出力と同期ブリッジ
 ├── Conversion/                     # ConversionService / Prompt / Validator / Error
 ├── Networking/OpenAICompatibleClient.swift
+├── Inference/                      # InferenceBackend / ExternalAPIBackend / ZenzBackend / LocalModelBackend / Factory
+├── LocalModels/                    # ModelManifest / ModelManager / model-manifest.json（重みは含まない）
 └── Settings/                       # AppSettings / SettingsView / APIKeyStore
 KanatoTests/                        # Swift Testing によるユニットテスト
 DevServer/                          # 開発用 Mock LLM Server（独立した Swift Package、アプリには非同梱）
@@ -171,6 +192,9 @@ DevServer/                          # 開発用 Mock LLM Server（独立した S
 ├── Sources/DevServer/              # main / MockLLMServer / ChatCompletionModels / MockConversionEngine
 └── Tests/DevServerTests/
 Kanato.xcworkspace                  # Kanato.xcodeproj + DevServer をまとめて開くワークスペース
+scripts/                            # download / convert / serve / eval / perform-service / check-model-artifacts
+docs/local-models.md                # ローカルモデル管理・推論基盤の設計
+.models/                            # 開発用モデルの保存先（Git 管理外）
 ```
 
 変換ロジック（`Conversion/`, `Networking/`）は AppKit / SwiftUI に依存せず、`nonisolated` かつ `Sendable` にしてあるため、後から Swift Package へ切り出せます。
@@ -196,7 +220,11 @@ LLM クライアントはプロトコル `ChatCompletionClient` 経由でモッ�
 
 `KanaServiceProviderTests` では、DevServer の各 Mock Mode が返す実レスポンス（http500 / empty_choices / empty_content / invalid_json）とサーバー停止・タイムアウトを再生し、サービス失敗時に pasteboard の原文が保持されることを確認しています。
 
-2026-11-13 時点: **63 tests passed**（UI テンプレート 2 件含む）
+`ModelManifestTests` / `ModelManagerTests` / `InferenceBackendTests` では、マニフェストの検証（パス逸脱・未固定 revision・ライセンス文書の欠落など）、ダウンロード後の SHA-256 検証、失敗時のクリーンアップと既存インストールの保持、改ざん検出、ライセンス未確認モデルの取得拒否（Release 方針）、未実装のローカル推論・無効な Embedded が明確なエラーになることを確認しています。
+
+`ZenzBackendTests` では、zenz 形式のプロンプト（カタカナ化・左文脈）、行ごとの変換と空白の保持、ASCII の素通し、長い行の分割、制御タグを含む出力の拒否を確認しています。
+
+2026-11-14 時点: **105 tests passed**（UI テンプレート 2 件含む）
 
 ### Unit Tests（`DevServerTests`）
 

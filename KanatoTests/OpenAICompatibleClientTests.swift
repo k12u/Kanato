@@ -112,6 +112,47 @@ struct OpenAICompatibleClientTests {
         #expect(try sentBody()["temperature"] == nil)
     }
 
+    // MARK: - Text completion (zenz)
+
+    @Test func sendsCompletionsRequest() async throws {
+        replyJSON(#"{"choices":[{"text":"今日はいい天気です","index":0,"finish_reason":"stop"}]}"#)
+        let result = try await makeClient(model: "").completeText(prompt: "\u{EE00}キョウ\u{EE01}", maxTokens: 24)
+        #expect(result == "今日はいい天気です")
+
+        let request = try #require(StubURLProtocol.lastRequest)
+        #expect(request.url?.absoluteString == "http://localhost:1234/v1/completions")
+        let body = try sentBody()
+        #expect(body["prompt"] as? String == "\u{EE00}キョウ\u{EE01}")
+        #expect(body["max_tokens"] as? Int == 24)
+        #expect(body["temperature"] as? Double == 0)
+        #expect(body["stream"] as? Bool == false)
+        // Model ID は任意で、空ならキー自体を送らない
+        #expect(body["model"] == nil)
+    }
+
+    @Test func completionsErrors() async {
+        replyJSON(#"{"choices":[]}"#)
+        await #expect(throws: ConversionError.invalidResponse) {
+            try await makeClient().completeText(prompt: "p", maxTokens: 8)
+        }
+        replyJSON(#"{"choices":[{"text":null}]}"#)
+        await #expect(throws: ConversionError.emptyResult) {
+            try await makeClient().completeText(prompt: "p", maxTokens: 8)
+        }
+        replyJSON(#"{"error":{"message":"bad"}}"#, status: 500)
+        await #expect(throws: ConversionError.httpStatus(500)) {
+            try await makeClient().completeText(prompt: "p", maxTokens: 8)
+        }
+    }
+
+    @Test(arguments: ["http://localhost:1234/v1", "http://localhost:1234/v1/completions", "http://localhost:1234/v1/chat/completions"])
+    func normalizesCompletionsURL(baseURL: String) throws {
+        let url = try OpenAICompatibleClient.endpointURL(
+            baseURL: baseURL, path: OpenAICompatibleClient.completionsPath, allowLocalNetworkHTTP: false
+        )
+        #expect(url.absoluteString == "http://localhost:1234/v1/completions")
+    }
+
     // MARK: - Errors
 
     @Test(arguments: [400, 401, 500])

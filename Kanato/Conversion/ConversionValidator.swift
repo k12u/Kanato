@@ -10,6 +10,9 @@ nonisolated struct ConversionValidator: Sendable {
     /// 出力の最大文字数 = 入力文字数 × outputLengthRatio + outputLengthSlack
     var outputLengthRatio = 2
     var outputLengthSlack = 32
+    /// 「変換結果：」などの説明文の書き出しを拒否するか。
+    /// 説明文を出力しないかな漢字変換専用モデル（zenz）では、「以下」などの正当な変換結果を誤検出しないよう無効にする
+    var rejectsExplanationPrefixes = true
 
     func maxOutputLength(forInputLength length: Int) -> Int {
         length * outputLengthRatio + outputLengthSlack
@@ -31,7 +34,8 @@ nonisolated struct ConversionValidator: Sendable {
         if Self.looksLikeJSON(body) && !Self.looksLikeJSON(inputBody) {
             throw ConversionError.unexpectedFormat("JSON")
         }
-        if let prefix = Self.explanationPrefixes.first(where: { body.hasPrefix($0) && !inputBody.hasPrefix($0) }) {
+        if rejectsExplanationPrefixes,
+           let prefix = Self.explanationPrefixes.first(where: { body.hasPrefix($0) && !inputBody.hasPrefix($0) }) {
             throw ConversionError.unexpectedFormat("説明文: \(prefix)")
         }
         if Self.isWrappedInQuotes(body) && !Self.isWrappedInQuotes(inputBody) {

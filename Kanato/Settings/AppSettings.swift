@@ -20,6 +20,9 @@ final class AppSettings {
         static let timeout = "timeout"
         static let sendTemperature = "sendTemperature"
         static let allowLocalNetworkHTTP = "allowLocalNetworkHTTP"
+        static let distributionMode = "distributionMode"
+        static let localModelID = "localModelID"
+        static let apiFormat = "apiFormat"
     }
 
     var baseURL: String
@@ -28,6 +31,9 @@ final class AppSettings {
     var timeout: TimeInterval
     var sendTemperature: Bool
     var allowLocalNetworkHTTP: Bool
+    var distributionMode: DistributionMode
+    var localModelID: String
+    var apiFormat: ExternalAPIFormat
 
     init(defaults: UserDefaults = .standard) {
         let stored = Self.loadConfiguration(defaults: defaults, includeAPIKey: true)
@@ -37,6 +43,10 @@ final class AppSettings {
         timeout = stored.timeout
         sendTemperature = stored.temperature != nil
         allowLocalNetworkHTTP = stored.allowLocalNetworkHTTP
+        let selection = Self.loadBackendSelection(defaults: defaults)
+        distributionMode = selection.mode
+        localModelID = selection.localModelID
+        apiFormat = selection.externalFormat
     }
 
     /// 画面上の (未保存を含む) 値から接続設定を作る
@@ -51,6 +61,11 @@ final class AppSettings {
         )
     }
 
+    /// 画面上の (未保存を含む) 推論バックエンドの選択
+    var backendSelection: BackendSelection {
+        BackendSelection(mode: distributionMode, localModelID: localModelID, externalFormat: apiFormat)
+    }
+
     /// API キーの保存に失敗した場合は false
     @discardableResult
     func save(defaults: UserDefaults = .standard) -> Bool {
@@ -59,6 +74,9 @@ final class AppSettings {
         defaults.set(timeout.clamped(to: Self.timeoutRange), forKey: Keys.timeout)
         defaults.set(sendTemperature, forKey: Keys.sendTemperature)
         defaults.set(allowLocalNetworkHTTP, forKey: Keys.allowLocalNetworkHTTP)
+        defaults.set(distributionMode.rawValue, forKey: Keys.distributionMode)
+        defaults.set(localModelID.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Keys.localModelID)
+        defaults.set(apiFormat.rawValue, forKey: Keys.apiFormat)
         return APIKeyStore.save(apiKey)
     }
 
@@ -76,6 +94,16 @@ final class AppSettings {
             timeout: timeout.clamped(to: timeoutRange),
             temperature: sendTemperature ? 0 : nil,
             allowLocalNetworkHTTP: defaults.bool(forKey: Keys.allowLocalNetworkHTTP)
+        )
+    }
+
+    /// 保存済みの推論バックエンドの選択を読み出す（サービス実行時に毎回呼ぶ）。
+    /// 不明な値は既定（External）として扱う
+    nonisolated static func loadBackendSelection(defaults: UserDefaults = .standard) -> BackendSelection {
+        BackendSelection(
+            mode: defaults.string(forKey: Keys.distributionMode).flatMap(DistributionMode.init(rawValue:)) ?? .default,
+            localModelID: defaults.string(forKey: Keys.localModelID) ?? "",
+            externalFormat: defaults.string(forKey: Keys.apiFormat).flatMap(ExternalAPIFormat.init(rawValue:)) ?? .default
         )
     }
 

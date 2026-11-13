@@ -9,6 +9,8 @@ struct SettingsView: View {
     @State private var settings = AppSettings()
     @State private var status: Status?
     @State private var isTesting = false
+    /// 同梱のモデルマニフェスト（メタデータのみ）。読めない場合は nil
+    @State private var manifest = try? ModelManifest.loadBundled()
 
     private enum Status {
         case success(String)
@@ -20,11 +22,46 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("LLM接続") {
+            Section("推論バックエンド") {
+                Picker("モード", selection: $settings.distributionMode) {
+                    ForEach(DistributionMode.allCases, id: \.self) { mode in
+                        Text(mode.isEnabled ? mode.displayName : "\(mode.displayName)（未有効化）")
+                            .tag(mode)
+                    }
+                }
+                switch settings.distributionMode {
+                case .external:
+                    EmptyView()
+                case .download:
+                    localModelPicker
+                    Label("ローカル推論エンジンは未実装です。このモードでの変換はエラーになります。",
+                          systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                case .embedded:
+                    Label(InferenceBackendError.embeddedModeDisabled.errorDescription ?? "",
+                          systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            Section("LLM接続（External）") {
+                Picker("API形式", selection: $settings.apiFormat) {
+                    ForEach(ExternalAPIFormat.allCases, id: \.self) { format in
+                        Text(format.displayName).tag(format)
+                    }
+                }
                 TextField("API Base URL", text: $settings.baseURL, prompt: Text(AppSettings.defaultBaseURL))
                     .autocorrectionDisabled()
-                TextField("Model ID", text: $settings.model, prompt: Text("例: qwen2.5-7b-instruct"))
-                    .autocorrectionDisabled()
+                if settings.apiFormat == .zenz {
+                    TextField("Model ID（任意）", text: $settings.model, prompt: Text("例: zenz-v2.5-medium"))
+                        .autocorrectionDisabled()
+                    Text("zenz は /completions で呼び出します（例: llama-server の http://127.0.0.1:8801/v1）")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    TextField("Model ID", text: $settings.model, prompt: Text("例: qwen2.5-7b-instruct"))
+                        .autocorrectionDisabled()
+                }
                 SecureField("API Key（任意）", text: $settings.apiKey)
                 Stepper(value: $settings.timeout, in: AppSettings.timeoutRange, step: 1) {
                     LabeledContent("タイムアウト", value: "\(Int(settings.timeout)) 秒")
@@ -72,6 +109,23 @@ struct SettingsView: View {
         .frame(minWidth: 480, minHeight: 420)
     }
 
+    @ViewBuilder
+    private var localModelPicker: some View {
+        let models = manifest?.models ?? []
+        if models.isEmpty {
+            Text("モデルマニフェストに登録されたモデルはありません")
+                .foregroundStyle(.secondary)
+        } else {
+            Picker("モデル", selection: $settings.localModelID) {
+                Text("未選択").tag("")
+                ForEach(models) { model in
+                    Text("\(model.name)（\(model.backend.displayName) / ライセンス\(model.license.redistribution.displayName)）")
+                        .tag(model.id)
+                }
+            }
+        }
+    }
+
     private func save() {
         if settings.save() {
             status = .success("保存しました")
@@ -82,12 +136,15 @@ struct SettingsView: View {
 
     /// 画面上の (未保存を含む) 設定で実際に小さな変換リクエストを送る
     private func runConnectionTest() {
-        let service = ConversionService(client: OpenAICompatibleClient(configuration: settings.configuration))
+        let backend = InferenceBackendFactory().makeBackend(
+            selection: settings.backendSelection,
+            configuration: settings.configuration
+        )
         isTesting = true
         status = nil
         Task {
             do {
-                let result = try await service.convert(text: Self.testInput)
+                let result = try await backend.convert(Self.testInput)
                 status = .success("成功: \(Self.testInput) → \(result)")
             } catch {
                 status = .failure(error.localizedDescription)

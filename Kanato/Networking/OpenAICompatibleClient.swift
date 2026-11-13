@@ -11,6 +11,11 @@ nonisolated protocol ChatCompletionClient: Sendable {
     func complete(system: String, user: String) async throws -> String
 }
 
+/// プロンプトをそのまま補完させる呼び出しの抽象（zenz などチャット形式でないモデル向け）
+nonisolated protocol TextCompletionClient: Sendable {
+    func completeText(prompt: String, maxTokens: Int) async throws -> String
+}
+
 /// OpenAI 互換 API の接続設定
 nonisolated struct LLMConfiguration: Sendable, Equatable {
     var baseURL: String
@@ -23,8 +28,8 @@ nonisolated struct LLMConfiguration: Sendable, Equatable {
     var allowLocalNetworkHTTP: Bool
 }
 
-/// `POST {baseURL}/chat/completions` を呼び出すクライアント
-nonisolated struct OpenAICompatibleClient: ChatCompletionClient {
+/// `POST {baseURL}/chat/completions`（チャット）と `POST {baseURL}/completions`（テキスト補完）を呼び出すクライアント
+nonisolated struct OpenAICompatibleClient: ChatCompletionClient, TextCompletionClient {
     let configuration: LLMConfiguration
     let session: URLSession
 
@@ -48,8 +53,49 @@ nonisolated struct OpenAICompatibleClient: ChatCompletionClient {
         let model = configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { throw ConversionError.modelNotConfigured }
 
+        let data = try await post(
+            ChatRequest(
+                model: model,
+                messages: [.init(role: "system", content: system), .init(role: "user", content: user)],
+                temperature: configuration.temperature,
+                stream: false
+            ),
+            path: Self.chatCompletionsPath
+        )
+        guard let decoded = try? JSONDecoder().decode(ChatResponse.self, from: data) else {
+            throw ConversionError.invalidResponse
+        }
+        guard let first = decoded.choices.first else { throw ConversionError.invalidResponse }
+        guard let content = first.message.content else { throw ConversionError.emptyResult }
+        return content
+    }
+
+    /// Model ID は任意（llama-server のように 1 モデルだけを提供するサーバーでは不要）
+    func completeText(prompt: String, maxTokens: Int) async throws -> String {
+        let model = configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let data = try await post(
+            CompletionRequest(
+                model: model.isEmpty ? nil : model,
+                prompt: prompt,
+                maxTokens: maxTokens,
+                temperature: configuration.temperature,
+                stream: false
+            ),
+            path: Self.completionsPath
+        )
+        guard let decoded = try? JSONDecoder().decode(CompletionResponse.self, from: data) else {
+            throw ConversionError.invalidResponse
+        }
+        guard let first = decoded.choices.first else { throw ConversionError.invalidResponse }
+        guard let text = first.text else { throw ConversionError.emptyResult }
+        return text
+    }
+
+    /// JSON を POST し、2xx のレスポンス本文を返す
+    private func post(_ body: some Encodable, path: String) async throws -> Data {
         let url = try Self.endpointURL(
             baseURL: configuration.baseURL,
+            path: path,
             allowLocalNetworkHTTP: configuration.allowLocalNetworkHTTP
         )
 
@@ -59,14 +105,7 @@ nonisolated struct OpenAICompatibleClient: ChatCompletionClient {
         if let apiKey = configuration.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines), !apiKey.isEmpty {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
-        request.httpBody = try JSONEncoder().encode(
-            ChatRequest(
-                model: model,
-                messages: [.init(role: "system", content: system), .init(role: "user", content: user)],
-                temperature: configuration.temperature,
-                stream: false
-            )
-        )
+        request.httpBody = try JSONEncoder().encode(body)
 
         let start = ContinuousClock.now
         let data: Data
@@ -83,29 +122,32 @@ nonisolated struct OpenAICompatibleClient: ChatCompletionClient {
             Self.logger.error("HTTP status \(http.statusCode, privacy: .public)")
             throw ConversionError.httpStatus(http.statusCode)
         }
-
-        guard let decoded = try? JSONDecoder().decode(ChatResponse.self, from: data) else {
-            throw ConversionError.invalidResponse
-        }
-        guard let first = decoded.choices.first else { throw ConversionError.invalidResponse }
-        guard let content = first.message.content else { throw ConversionError.emptyResult }
-        return content
+        return data
     }
 
     // MARK: - URL
 
-    /// baseURL の末尾スラッシュを正規化し、`/chat/completions` を一度だけ付加する
-    static func endpointURL(baseURL: String, allowLocalNetworkHTTP: Bool) throws -> URL {
+    static let chatCompletionsPath = "/chat/completions"
+    static let completionsPath = "/completions"
+
+    /// baseURL の末尾スラッシュを正規化し、エンドポイントのパスを一度だけ付加する
+    static func endpointURL(
+        baseURL: String,
+        path: String = chatCompletionsPath,
+        allowLocalNetworkHTTP: Bool
+    ) throws -> URL {
         var base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         while base.hasSuffix("/") { base.removeLast() }
-        if base.hasSuffix("/chat/completions") {
-            base.removeLast("/chat/completions".count)
+        // エンドポイントまで入力された場合も受け付ける（/chat/completions を先に判定する）
+        for suffix in [chatCompletionsPath, completionsPath] where base.hasSuffix(suffix) {
+            base.removeLast(suffix.count)
+            break
         }
 
         guard let components = URLComponents(string: base),
               let scheme = components.scheme?.lowercased(),
               let host = components.host, !host.isEmpty,
-              let url = URL(string: base + "/chat/completions")
+              let url = URL(string: base + path)
         else { throw ConversionError.invalidBaseURL }
 
         switch scheme {
@@ -170,6 +212,29 @@ nonisolated struct ChatRequest: Encodable, Sendable {
     /// nil の場合はキー自体を出力しない
     let temperature: Double?
     let stream: Bool
+}
+
+/// OpenAI 互換の Completions（`/completions`）リクエスト
+nonisolated struct CompletionRequest: Encodable, Sendable {
+    /// nil の場合はキー自体を出力しない
+    let model: String?
+    let prompt: String
+    let maxTokens: Int
+    /// nil の場合はキー自体を出力しない
+    let temperature: Double?
+    let stream: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case model, prompt, temperature, stream
+        case maxTokens = "max_tokens"
+    }
+}
+
+nonisolated struct CompletionResponse: Decodable, Sendable {
+    struct Choice: Decodable, Sendable {
+        let text: String?
+    }
+    let choices: [Choice]
 }
 
 nonisolated struct ChatResponse: Decodable, Sendable {

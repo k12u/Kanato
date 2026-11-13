@@ -9,3 +9,18 @@ build/
 
 # Swift Package Manager
 .build/
+
+# ローカルモデル（重みファイルは Git に含めない。管理情報は Kanato/LocalModels/model-manifest.json）
+/.models/
+*.gguf
+*.ggml
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.npz
+*.tflite
+*.mlmodel
+*.mlpackage/
+.kanato-install.json
