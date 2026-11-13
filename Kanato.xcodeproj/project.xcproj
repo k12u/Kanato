@@ -11,7 +11,21 @@
     ],
   },
   "files": [
-    { "kind": "folder", "path": "Kanato", "target-membership": [ "Kanato" ] },
+    {
+      "kind": "folder",
+      "path": "Kanato",
+      "target-membership": [
+        "Kanato",
+      ],
+      "membership-exceptions": [
+        {
+          "target": "Kanato",
+          "exclusions": [
+            "Info.plist",
+          ],
+        },
+      ],
+    },
     { "kind": "folder", "path": "KanatoTests", "target-membership": [ "KanatoTests" ] },
     { "kind": "folder", "path": "KanatoUITests", "target-membership": [ "KanatoUITests" ] },
     {
@@ -42,14 +56,18 @@
         "COMBINE_HIDPI_IMAGES": "YES",
         "CURRENT_PROJECT_VERSION": "1",
         "ENABLE_APP_SANDBOX": "YES",
+        "ENABLE_OUTGOING_NETWORK_CONNECTIONS": "YES",
         "ENABLE_PREVIEWS": "YES",
         "ENABLE_USER_SELECTED_FILES": "readonly",
         "GENERATE_INFOPLIST_FILE": "YES",
+        "INFOPLIST_FILE": "Kanato/Info.plist",
         "INFOPLIST_KEY_NSHumanReadableCopyright": "",
+        "INFOPLIST_KEY_NSLocalNetworkUsageDescription": "ローカルネットワーク上のLLMサーバーに選択テキストを送信して変換するために使用します。",
         "LD_RUNPATH_SEARCH_PATHS": [
           "$(inherited)",
           "@executable_path/../Frameworks",
         ],
+        "MACOSX_DEPLOYMENT_TARGET": "14.0",
         "MARKETING_VERSION": "1.0",
         "PRODUCT_BUNDLE_IDENTIFIER": "org.k12u.Kanato",
         "PRODUCT_NAME": "$(TARGET_NAME)",
