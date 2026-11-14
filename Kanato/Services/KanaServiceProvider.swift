@@ -17,15 +17,17 @@ final class KanaServiceProvider: NSObject {
     private var handledRequestCount = 0
 
     private let loadConfiguration: () -> LLMConfiguration
-    private let makeClient: (LLMConfiguration) -> any ChatCompletionClient
+    private let makeBackend: (LLMConfiguration) -> any InferenceBackend
 
-    /// テストでは接続設定と HTTP クライアントを差し替える
+    /// テストでは接続設定と推論バックエンドを差し替える
     init(
         loadConfiguration: @escaping () -> LLMConfiguration = { AppSettings.loadConfiguration() },
-        makeClient: @escaping (LLMConfiguration) -> any ChatCompletionClient = { OpenAICompatibleClient(configuration: $0) }
+        makeBackend: @escaping (LLMConfiguration) -> any InferenceBackend = {
+            InferenceBackendFactory().makeBackend(selection: AppSettings.loadBackendSelection(), configuration: $0)
+        }
     ) {
         self.loadConfiguration = loadConfiguration
-        self.makeClient = makeClient
+        self.makeBackend = makeBackend
         super.init()
     }
 
@@ -45,12 +47,12 @@ final class KanaServiceProvider: NSObject {
         }
 
         let configuration = loadConfiguration()
-        let service = ConversionService(client: makeClient(configuration))
+        let backend = makeBackend(configuration)
         let waitLimit = min(configuration.timeout + Self.waitMargin, Self.maxWait)
 
         // サービスメソッドは同期 API のため、変換をバックグラウンドで実行して完了を待つ
         let result = BlockingBridge.run(timeout: waitLimit) {
-            try await service.convert(text: input)
+            try await backend.convert(input)
         }
 
         switch result {

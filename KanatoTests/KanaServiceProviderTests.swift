@@ -74,13 +74,13 @@ struct KanaServiceProviderTests {
     private func makeProvider() -> KanaServiceProvider {
         KanaServiceProvider(
             loadConfiguration: { Self.configuration },
-            makeClient: { configuration in
+            makeBackend: { configuration in
                 let sessionConfiguration = URLSessionConfiguration.ephemeral
                 sessionConfiguration.protocolClasses = [DevServerReplayURLProtocol.self]
-                return OpenAICompatibleClient(
+                return ExternalAPIBackend(client: OpenAICompatibleClient(
                     configuration: configuration,
                     session: URLSession(configuration: sessionConfiguration)
-                )
+                ))
             }
         )
     }
