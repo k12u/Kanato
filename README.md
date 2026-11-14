@@ -163,13 +163,13 @@ open -n Kanato.app --args -baseURL http://127.0.0.1:8765/v1 -model kanafilter-mo
 | 配布モード | 状態 |
 |---|---|
 | External（外部 API・既定） | 動作する。API 形式は Chat Completions（汎用 LLM）/ zenz v2 / zenz v3 を選択 |
-| Download（初回実行時に取得） | 動作する（zenz-v3.2-small, 70 MB）。設定画面からダウンロードし、アプリ内の llama.cpp で変換する。Release ビルドではライセンス確認済み（`verified`）のモデルしか取得できないため、現状は Debug ビルドのみ |
+| Download（初回実行時に取得） | 動作する（zenz-v3.2-small, 70 MB）。設定画面からダウンロードし、アプリ内の llama.cpp で変換する。モデルは公式の Hugging Face から直接取得し、アプリは再配布しない |
 | Embedded（同梱） | 無効。モデル選定とライセンス確認後に有効化する |
 
 - モデルの管理情報: `Kanato/LocalModels/model-manifest.json`（Model ID・配布元・revision・ファイルと SHA-256・ライセンスと再配布可否の確認状態・バックエンド・形式・量子化・必要メモリ）
 - 重みファイルは Git にコミットせず、アプリにも同梱しません（`.gitignore` で除外）
 - 開発用の取得: `scripts/download-model.sh --list` / `scripts/download-model.sh <MODEL_ID>`（保存先 `.models/`、ハッシュ検証つき）
-- 登録済み（すべてライセンス未確認）: zenz-v3.2-small（アプリ内推論用）/ zenz-v2.5-medium / Qwen3-1.7B (Q8_0) / Qwen3-4B (Q4_K_M)。評価では zenz 系が最良（19 文中 17 文一致）
+- 登録済み: zenz-v3.2-small（アプリ内推論用。ダウンロード利用のライセンス確認済み）/ zenz-v2.5-medium・Qwen3-1.7B (Q8_0)・Qwen3-4B (Q4_K_M)（開発・評価用、未確認）。評価では zenz 系が最良（19 文中 17 文一致）
 - アプリ内で試す: 設定の「推論バックエンド」でモード「Download」、モデル「zenz-v3.2-small」を選び「ダウンロード」→「保存」
 - 外部サーバーで試す: `scripts/convert-model-gguf.sh zenz-v2.5-medium` → `scripts/serve-model.sh zenz-v2.5-medium --port 8801` → 設定で API 形式「zenz v2」、API Base URL `http://127.0.0.1:8801/v1`
 - 混入チェック: `scripts/check-model-artifacts.sh [Kanato.app]`
@@ -228,7 +228,7 @@ LLM クライアントはプロトコル `ChatCompletionClient` 経由でモッ�
 
 `LocalModelBackendTests` では、ローカル推論でのプロンプト形式（zenz v2 / v3）、読み込み済みエンジンの再利用と差し替え、未対応の形式（チャット・safetensors）・読み込み失敗が明確なエラーになることを確認しています。
 
-2026-11-14 時点: **113 tests passed**（UI テンプレート 2 件含む）
+2026-11-14 時点: **117 tests passed**（UI テンプレート 2 件含む）
 
 ### Unit Tests（`DevServerTests`）
 
@@ -296,3 +296,9 @@ Debug ビルドの Kanato を起動引数で DevServer に向け、`NSPerformSer
 - Kanato は選択したテキストを変換結果で置き換えるサービスのため、選択範囲の置き換えに対応していないアプリ（例: ターミナル）では、選択した文字が消えずに変換結果が入力として追加されます（例: `にほんごへんかん` → `にほんごへんかん日本語変換`）。
 - 署名なし（ad-hoc）でビルドし直すと、Keychain の API キーへのアクセス確認ダイアログが出ることがあります。
 - 一般配布用の Developer ID 署名・公証・DMG 作成は未対応（MVP 後の工程）。
+
+## ライセンス
+
+- Kanato のソースコード: [MIT License](LICENSE)（Copyright (c) 2026 k12u）
+- 同梱ソフトウェア: llama.cpp / ggml（MIT License）。表示は [Kanato/Legal/ThirdPartyNotices.txt](Kanato/Legal/ThirdPartyNotices.txt) にまとめ、アプリにも同梱して設定画面の「ライセンス表示」から確認できます
+- モデル: リポジトリにもアプリにも含みません。ユーザーが配布元から直接ダウンロードし、各モデルのライセンスに従います。アプリ内推論で使う zenz-v3.2-small は CC BY-SA 4.0（© Keita Miwa）で、帰属表示を設定画面に掲載しています。方針の詳細は [docs/local-models.md](docs/local-models.md#モデルのライセンスと配布方針) を参照

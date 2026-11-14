@@ -83,8 +83,42 @@ struct ModelManifestTests {
         #expect(zenz.promptFormat == .zenzV3)
         #expect(zenz.contextLength == 1024)
         #expect(zenz.metadataOverrides == ["tokenizer.ggml.pre": "gpt-2"])
-        // 再配布可否が確認されるまでは同梱対象にしない
+        // ダウンロード利用は確認済み。同梱（再配布）は未確認のため同梱対象にしない
+        #expect(zenz.license.downloadUseStatus == .verified)
+        #expect(zenz.license.redistribution == .unverified)
         #expect(!bundled.embeddableModels.contains { $0.id == zenz.id })
+    }
+
+    /// アプリで取得できるモデルには、画面に出す帰属表示とライセンスの URL が必要
+    @Test func locallyRunnableModelsHaveAttribution() throws {
+        let bundled = try ModelManifest.loadBundled(from: Bundle(for: AppDelegate.self))
+        let models = bundled.models.filter(\.supportsLocalInference)
+        #expect(!models.isEmpty)
+        for model in models {
+            #expect(model.license.attribution?.isEmpty == false, "\(model.id)")
+            #expect(model.license.url?.scheme == "https", "\(model.id)")
+        }
+    }
+
+    /// downloadUse を持たない（以前の形式の）マニフェストは「未確認」として読む
+    @Test func missingDownloadUseIsUnverified() throws {
+        var json = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(manifest([ModelFixtures.model()]))
+        ) as! [String: Any]
+        var models = json["models"] as! [[String: Any]]
+        var license = models[0]["license"] as! [String: Any]
+        license.removeValue(forKey: "downloadUse")
+        models[0]["license"] = license
+        json["models"] = models
+        let decoded = try ModelManifest.decode(JSONSerialization.data(withJSONObject: json))
+        #expect(decoded.models[0].license.downloadUseStatus == .unverified)
+    }
+
+    @Test func bundledLicenseNoticesIncludeKanatoAndLlamaCpp() throws {
+        let notices = try #require(LicensesView.bundledNotices(in: Bundle(for: AppDelegate.self)))
+        #expect(notices.contains("Copyright (c) 2026 k12u"))
+        #expect(notices.contains("Copyright (c) 2023-2026 The ggml authors"))
+        #expect(notices.contains("MIT License"))
     }
 
     @Test func rejectsInvalidInferenceSettings() {

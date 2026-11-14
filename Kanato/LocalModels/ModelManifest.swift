@@ -80,12 +80,24 @@ nonisolated struct ModelManifest: Codable, Equatable, Sendable {
         var identifier: String
         /// ライセンス文書のパス。`files` に含め、モデルと一緒に取得・検証する
         var documentPath: String
+        /// アプリに同梱して再配布してよいかの確認状態（Embedded 用）
         var redistribution: RedistributionStatus
+        /// ユーザーが配布元から直接ダウンロードして使うことの確認状態（Download 用）。
+        /// アプリはモデルを再配布しないが、ライセンス条件（帰属表示など）を満たしているかを確認する。省略時は未確認
+        var downloadUse: RedistributionStatus?
+        /// 帰属表示（作者・著作権者・基盤モデルなど）。設定画面とサードパーティ表示に出す
+        var attribution: String?
+        /// ライセンス本文の URL（例: https://creativecommons.org/licenses/by-sa/4.0/）
+        var url: URL?
         /// 確認者・確認日・根拠など
         var notes: String?
+
+        var downloadUseStatus: RedistributionStatus {
+            downloadUse ?? .unverified
+        }
     }
 
-    /// 再配布可否の確認状態
+    /// ライセンス条件の確認状態
     nonisolated enum RedistributionStatus: String, Codable, Sendable, CaseIterable {
         /// 未確認。製品ビルドへ同梱しない
         case unverified

@@ -10,7 +10,7 @@
 | 重みファイル | Git にコミットしない（`.gitignore`）。Xcode の同期フォルダ（`Kanato/` など）に置かない |
 | 開発用モデル | `scripts/download-model.sh` で `<repo>/.models/<MODEL_ID>/` に取得する（Git 管理外） |
 | アプリでの保存先 | `Application Support/Kanato/Models/<MODEL_ID>/`（Sandbox 下ではコンテナ内） |
-| 未確認ライセンス | 製品ビルドへ同梱しない。Release ビルドの `ModelManager` は `verified` 以外を取得しない |
+| 未確認ライセンス | 製品ビルドへ同梱しない（`redistribution`）。Release ビルドの `ModelManager` は `downloadUse` が `verified` 以外のモデルを取得しない |
 | Mock Server との区別 | DevServer は External モードの接続先の 1 つにすぎない。ローカル推論とは別物 |
 
 ## Model Manifest
@@ -56,7 +56,9 @@
 | `files[].path` | 相対パス。`..`・絶対パス・隠しファイルは不可 |
 | `files[].sha256` / `size` | 取得後に必ず照合する。一致しなければ破棄する |
 | `license.documentPath` | `files` に含めること（モデルと一緒に取得・検証・保持する） |
-| `license.redistribution` | `unverified`（未確認）/ `in-review`（確認中）/ `verified`（確認済み） |
+| `license.redistribution` | アプリに同梱して再配布してよいか（Embedded 用）。`unverified`（未確認）/ `in-review`（確認中）/ `verified`（確認済み） |
+| `license.downloadUse` | ユーザーが配布元から直接ダウンロードして使うことの確認状態（Download 用）。省略時は未確認。Release ビルドは `verified` のモデルだけを取得する |
+| `license.attribution` / `license.url` | 帰属表示とライセンス本文の URL。設定画面とライセンス表示に出す。アプリ内推論に使うモデルでは必須（テストで確認） |
 | `backend` | `mlx` / `llama.cpp` |
 | `format` | `mlx` / `gguf` / `safetensors`（Hugging Face Transformers 形式。llama.cpp で使うには GGUF へ変換する） |
 | `estimatedMemoryMB` | 推論時のおおよその必要メモリ |
@@ -104,7 +106,7 @@ Download モードで選べるのは、エンジンが対応する形式（GGUF�
 | モード | 状態 | 内容 |
 |---|---|---|
 | External | **動作する（既定）** | ユーザーが設定した OpenAI 互換 API（LM Studio・DevServer・llama-server など）。API 形式は Chat Completions（汎用 LLM）と zenz を選べる |
-| Download | **動作する** | マニフェストのモデルを設定画面から Application Support へ取得・検証し、アプリ内の llama.cpp で変換する。Release ビルドでは再配布可否が `verified` のモデルしか取得できない（現状の zenz-v3.2-small は `unverified` のため Debug のみ） |
+| Download | **動作する** | マニフェストのモデルを設定画面から Application Support へ取得・検証し、アプリ内の llama.cpp で変換する。Release ビルドでは `downloadUse` が `verified` のモデルだけを取得できる（zenz-v3.2-small は確認済み） |
 | Embedded | 無効 | モデル選定とライセンス確認（`verified`）後に有効化する。現在は常にエラー |
 
 設定画面の「推論バックエンド」、または起動引数（`-distributionMode download -localModelID <id>`）で切り替えます。
@@ -215,3 +217,20 @@ scripts/serve-model.sh zenz-v2.5-medium --port 8801
 | zenz-v3.2-xsmall（Q5_K_M） | 21 MB | 17/19 | 41 ms | 199 ms |
 
 誤りはいずれも同音異義語の 2 文（「きしゃのきしゃは…」「いしにいしを」）。公式 GGUF をそのまま取得できる zenz-v3.2-small をアプリ内推論の最初の対象にした。
+
+## モデルのライセンスと配布方針（2026-11-14）
+
+一般的な整理であり、法的助言ではない。商用配布の前には専門家に確認する。
+
+| 対象 | 方針 |
+|---|---|
+| Kanato のソースコード | MIT License（`LICENSE`、Copyright (c) 2026 k12u） |
+| llama.cpp / ggml（`llama.framework` として同梱） | MIT License。著作権表示とライセンス文を `Kanato/Legal/ThirdPartyNotices.txt` に収録し、アプリに同梱して設定画面から表示する |
+| zenz-v3.2-small（CC BY-SA 4.0） | **Download 方式**: ユーザーが Hugging Face の公式リポジトリ（revision 固定）から直接取得する。アプリはモデルを再配布しない。帰属表示（作者・ライセンス・リンク）を設定画面とライセンス表示に掲載する |
+
+- CC BY-SA の継承条件（SA）はモデルとその改変物に及ぶ。モデルを読み込んで使うだけのアプリのコードには及ばないと考え、コードは MIT とした
+- 読み込み時の `tokenizer.ggml.pre` の上書きはメモリ上の設定のみで、モデルファイルは改変・配布しない
+- 変換結果（ユーザーの文章）はモデルの改変物ではないと考える
+- **Embedded（同梱）を有効化する場合**: 再配布になるため、帰属表示、ライセンス本文か URL の添付、改変の有無の明示が必要。また、利用者の権利を制限する技術的手段を加えてはならない（CC BY-SA 4.0 2(a)(5)(C)）。App Store 経由の配布はこの点を確認する。Developer ID での直接配布は問題になりにくい。確認後に `redistribution` を `verified` にする
+- **自前で変換した GGUF を配布する場合**（例: zenz-v2.5-medium）: 改変物の配布になるため、CC BY-SA 4.0 で公開し、変更点を明示する
+- zenz-v3.2-small のモデルカードにはライセンスのみが記載され、基盤モデルの記載はない（v2.5 系は ku-nlp/gpt2-*-japanese-char を基盤と記載）。判明した場合は帰属表示に追記する

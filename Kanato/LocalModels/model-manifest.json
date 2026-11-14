@@ -55,7 +55,9 @@
         "identifier": "CC-BY-SA-4.0",
         "documentPath": "README.md",
         "redistribution": "unverified",
-        "notes": "ライセンスはモデルカード (README.md) の記載。基盤モデル ku-nlp/gpt2-medium-japanese-char も CC-BY-SA-4.0。同梱時は表示・継承条件の確認が必要。2026-11-13 開発評価用に登録"
+        "notes": "ライセンスはモデルカード (README.md) の記載。基盤モデル ku-nlp/gpt2-medium-japanese-char も CC-BY-SA-4.0。同梱時は表示・継承条件の確認が必要。2026-11-13 開発評価用に登録",
+        "attribution": "zenz-v2.5-medium © Keita Miwa (Miwa-Keita). Licensed under CC BY-SA 4.0. Based on ku-nlp/gpt2-medium-japanese-char (CC BY-SA 4.0). https://huggingface.co/Miwa-Keita/zenz-v2.5-medium",
+        "url": "https://creativecommons.org/licenses/by-sa/4.0/"
       },
       "backend": "llama.cpp",
       "format": "safetensors",
@@ -88,7 +90,8 @@
         "identifier": "Apache-2.0",
         "documentPath": "LICENSE",
         "redistribution": "unverified",
-        "notes": "2026-11-13 開発評価用に登録。公式 GGUF は Q8_0 のみ"
+        "notes": "2026-11-13 開発評価用に登録。公式 GGUF は Q8_0 のみ",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0"
       },
       "backend": "llama.cpp",
       "format": "gguf",
@@ -120,7 +123,8 @@
         "identifier": "Apache-2.0",
         "documentPath": "LICENSE",
         "redistribution": "unverified",
-        "notes": "2026-11-13 開発評価用に登録"
+        "notes": "2026-11-13 開発評価用に登録",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0"
       },
       "backend": "llama.cpp",
       "format": "gguf",
@@ -152,7 +156,10 @@
         "identifier": "CC-BY-SA-4.0",
         "documentPath": "README.md",
         "redistribution": "unverified",
-        "notes": "ライセンスはモデルカード (README.md) の記載。2026-11-14 アプリ内ローカル推論の最初の対象として登録"
+        "notes": "2026-11-14 確認（k12u）。downloadUse=verified: アプリはモデルを再配布せず、ユーザーが Hugging Face の公式リポジトリ（revision 固定）から直接取得する。帰属表示（作者・ライセンス・リンク）を設定画面とサードパーティ表示に掲載。モデルファイルは改変しない（読み込み時に tokenizer.ggml.pre をメモリ上で上書きするのみ）。redistribution=unverified: アプリへの同梱（Embedded）は、帰属表示・ライセンス添付・技術的保護手段の禁止（CC BY-SA 4.0 2(a)(5)(C)）を配布経路ごとに確認してから判断する。モデルカード (README.md) にはライセンスのみ記載され、基盤モデルの記載はない",
+        "downloadUse": "verified",
+        "attribution": "zenz-v3.2-small © Keita Miwa (Miwa-Keita). Licensed under CC BY-SA 4.0. https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf",
+        "url": "https://creativecommons.org/licenses/by-sa/4.0/"
       },
       "backend": "llama.cpp",
       "format": "gguf",

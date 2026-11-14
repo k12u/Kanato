@@ -42,6 +42,7 @@ enum ModelFixtures {
     static func model(
         id: String = "test-model",
         status: ModelManifest.RedistributionStatus = .unverified,
+        downloadUse: ModelManifest.RedistributionStatus? = nil,
         weightsHash: String? = nil,
         format: ModelManifest.ModelFormat = .gguf,
         promptFormat: ModelManifest.PromptFormat? = nil
@@ -58,7 +59,10 @@ enum ModelFixtures {
                 .init(path: "model.gguf", sha256: weightsHash ?? sha256(weights), size: Int64(weights.count)),
                 .init(path: "LICENSE", sha256: sha256(license), size: Int64(license.count)),
             ],
-            license: .init(identifier: "Apache-2.0", documentPath: "LICENSE", redistribution: status, notes: nil),
+            license: .init(
+                identifier: "Apache-2.0", documentPath: "LICENSE",
+                redistribution: status, downloadUse: downloadUse, notes: nil
+            ),
             backend: .llamaCpp,
             format: format,
             quantization: "Q4_K_M",
@@ -227,15 +231,32 @@ struct ModelManagerTests {
         #expect(throws: ModelStoreError.invalidModelID) { try manager.directory(for: ".staging") }
     }
 
-    @Test func releasePolicyRejectsUnverifiedLicense() async throws {
+    /// Release ビルドの方針: ダウンロード利用のライセンス確認が済んだモデルだけを取得する
+    @Test func releasePolicyRejectsUnverifiedDownloadUse() async throws {
         let strict = ModelManager(rootDirectory: root, allowsUnverifiedLicenses: false)
         for status in [ModelManifest.RedistributionStatus.unverified, .inReview] {
-            let model = ModelFixtures.model(status: status)
+            let model = ModelFixtures.model(downloadUse: status)
             await #expect(throws: ModelStoreError.licenseNotVerified(model.id, status)) {
                 try await strict.download(model)
             }
         }
+        // 同梱（再配布）可否だけが確認済みでも、ダウンロード利用が未確認なら取得しない
+        let redistributionOnly = ModelFixtures.model(status: .verified)
+        await #expect(throws: ModelStoreError.licenseNotVerified(redistributionOnly.id, .unverified)) {
+            try await strict.download(redistributionOnly)
+        }
         #expect(ModelFileURLProtocol.requestedPaths.isEmpty)
+    }
+
+    @Test func releasePolicyAllowsVerifiedDownloadUse() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ModelFileURLProtocol.self]
+        let strict = ModelManager(
+            rootDirectory: root, session: URLSession(configuration: configuration), allowsUnverifiedLicenses: false
+        )
+        let model = ModelFixtures.model(downloadUse: .verified)
+        try await strict.download(model)
+        #expect(strict.installState(of: model) == .installed)
     }
 
     @Test func cleanUpStagingRemovesLeftovers() throws {

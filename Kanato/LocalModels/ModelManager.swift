@@ -20,7 +20,7 @@ nonisolated final class ModelManager: Sendable {
     static let stagingDirectoryName = ".staging"
 
     let rootDirectory: URL
-    /// 再配布可否が未確認・確認中のモデルの取得を許可するか（開発用）
+    /// ダウンロード利用のライセンス確認が済んでいないモデルの取得を許可するか（開発用）
     let allowsUnverifiedLicenses: Bool
     private let session: URLSession
     private let activeDownloads = OSAllocatedUnfairLock(initialState: Set<String>())
@@ -171,8 +171,8 @@ nonisolated final class ModelManager: Sendable {
         progress: (@Sendable (ModelDownloadProgress) -> Void)? = nil
     ) async throws -> InstalledModel {
         guard ModelManifest.isValidModelID(model.id) else { throw ModelStoreError.invalidModelID }
-        guard allowsUnverifiedLicenses || model.license.redistribution == .verified else {
-            throw ModelStoreError.licenseNotVerified(model.id, model.license.redistribution)
+        guard allowsUnverifiedLicenses || model.license.downloadUseStatus == .verified else {
+            throw ModelStoreError.licenseNotVerified(model.id, model.license.downloadUseStatus)
         }
         guard activeDownloads.withLock({ $0.insert(model.id).inserted }) else {
             throw ModelStoreError.alreadyDownloading(model.id)
@@ -418,7 +418,7 @@ nonisolated enum ModelStoreError: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .invalidModelID: "Model ID が不正です"
-        case .licenseNotVerified(let id, let status): "\(id) は再配布可否が\(status.displayName)のため取得できません"
+        case .licenseNotVerified(let id, let status): "\(id) はライセンス（ダウンロード利用）の確認が\(status.displayName)のため取得できません"
         case .alreadyDownloading(let id): "\(id) はダウンロード中です"
         case .insufficientStorage(let required, _):
             "空き容量が不足しています（必要: \(ByteCountFormatter.string(fromByteCount: required, countStyle: .file))）"

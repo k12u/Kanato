@@ -12,6 +12,7 @@ struct SettingsView: View {
     /// 同梱のモデルマニフェスト（メタデータのみ）。読めない場合は nil
     @State private var manifest = try? ModelManifest.loadBundled()
     @State private var localModels = LocalModelController()
+    @State private var isShowingLicenses = false
 
     private enum Status {
         case success(String)
@@ -105,8 +106,16 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            Section {
+                LabeledContent("Kanato", value: "MIT License")
+                Button("ライセンス表示（同梱ソフトウェア・モデル）…") { isShowingLicenses = true }
+            }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $isShowingLicenses) {
+            LicensesView(models: localInferenceModels)
+        }
         .frame(minWidth: 480, minHeight: 420)
     }
 
@@ -141,7 +150,13 @@ struct SettingsView: View {
     private func localModelStatus(_ model: ModelManifest.Model) -> some View {
         let size = ByteCountFormatter.string(fromByteCount: model.totalSize, countStyle: .file)
         LabeledContent("サイズ / 必要メモリ", value: "\(size) / 約 \(model.estimatedMemoryMB) MB")
-        LabeledContent("ライセンス", value: "\(model.license.identifier)（再配布可否: \(model.license.redistribution.displayName)）")
+        ModelAttributionView(model: model)
+        if model.license.downloadUseStatus != .verified {
+            Label("このモデルはライセンスの確認が\(model.license.downloadUseStatus.displayName)のため、開発用（Debug）ビルドでのみ取得できます。",
+                  systemImage: "exclamationmark.triangle")
+                .font(.footnote)
+                .foregroundStyle(.orange)
+        }
 
         HStack {
             if localModels.downloadingModelID == model.id {
