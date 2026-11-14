@@ -156,21 +156,22 @@ open -n Kanato.app --args -baseURL http://127.0.0.1:8765/v1 -model kanafilter-mo
 
 両プロセスを Xcode から同時に自動起動する仕組みは用意していません（それぞれのスキームで Run してください）。
 
-## ローカルモデル管理（準備中）
+## ローカルモデル（オンデバイス推論）
 
-将来のオンデバイス推論に向けて、モデル管理と推論バックエンドの切り替え基盤を用意しています。**ローカル推論エンジンは未実装で、モデルも未選定**です。動作するのは External（外部 API）だけです。詳細は [docs/local-models.md](docs/local-models.md) を参照してください。
+アプリ内の llama.cpp で、かな漢字変換専用モデル zenz をこの Mac 上で実行できます（Download モード）。外部 API（External モード）も引き続き使えます。詳細は [docs/local-models.md](docs/local-models.md) を参照してください。
 
 | 配布モード | 状態 |
 |---|---|
-| External（外部 API・既定） | 動作する。API 形式は Chat Completions（汎用 LLM）/ zenz（かな漢字変換モデル）を選択 |
-| Download（初回実行時に取得） | 取得・検証の基盤のみ。変換は「ローカル推論は未実装」エラー |
+| External（外部 API・既定） | 動作する。API 形式は Chat Completions（汎用 LLM）/ zenz v2 / zenz v3 を選択 |
+| Download（初回実行時に取得） | 動作する（zenz-v3.2-small, 70 MB）。設定画面からダウンロードし、アプリ内の llama.cpp で変換する。Release ビルドではライセンス確認済み（`verified`）のモデルしか取得できないため、現状は Debug ビルドのみ |
 | Embedded（同梱） | 無効。モデル選定とライセンス確認後に有効化する |
 
 - モデルの管理情報: `Kanato/LocalModels/model-manifest.json`（Model ID・配布元・revision・ファイルと SHA-256・ライセンスと再配布可否の確認状態・バックエンド・形式・量子化・必要メモリ）
 - 重みファイルは Git にコミットせず、アプリにも同梱しません（`.gitignore` で除外）
 - 開発用の取得: `scripts/download-model.sh --list` / `scripts/download-model.sh <MODEL_ID>`（保存先 `.models/`、ハッシュ検証つき）
-- 登録済み（評価用・ライセンス未確認）: zenz-v2.5-medium / Qwen3-1.7B (Q8_0) / Qwen3-4B (Q4_K_M)。評価では zenz が最良（19 文中 17 文一致、中央値 約 70 ms）
-- 試し方: `scripts/convert-model-gguf.sh zenz-v2.5-medium` → `scripts/serve-model.sh zenz-v2.5-medium --port 8801` → 設定で API 形式「zenz」、API Base URL `http://127.0.0.1:8801/v1`
+- 登録済み（すべてライセンス未確認）: zenz-v3.2-small（アプリ内推論用）/ zenz-v2.5-medium / Qwen3-1.7B (Q8_0) / Qwen3-4B (Q4_K_M)。評価では zenz 系が最良（19 文中 17 文一致）
+- アプリ内で試す: 設定の「推論バックエンド」でモード「Download」、モデル「zenz-v3.2-small」を選び「ダウンロード」→「保存」
+- 外部サーバーで試す: `scripts/convert-model-gguf.sh zenz-v2.5-medium` → `scripts/serve-model.sh zenz-v2.5-medium --port 8801` → 設定で API 形式「zenz v2」、API Base URL `http://127.0.0.1:8801/v1`
 - 混入チェック: `scripts/check-model-artifacts.sh [Kanato.app]`
 
 ## 構成
@@ -183,7 +184,7 @@ Kanato/
 ├── Services/KanaServiceProvider.swift   # pasteboard 入出力と同期ブリッジ
 ├── Conversion/                     # ConversionService / Prompt / Validator / Error
 ├── Networking/OpenAICompatibleClient.swift
-├── Inference/                      # InferenceBackend / ExternalAPIBackend / ZenzBackend / LocalModelBackend / Factory
+├── Inference/                      # InferenceBackend / ExternalAPIBackend / ZenzBackend / LocalModelBackend / LlamaCppEngine / Factory
 ├── LocalModels/                    # ModelManifest / ModelManager / model-manifest.json（重みは含まない）
 └── Settings/                       # AppSettings / SettingsView / APIKeyStore
 KanatoTests/                        # Swift Testing によるユニットテスト
@@ -194,6 +195,7 @@ DevServer/                          # 開発用 Mock LLM Server（独立した S
 Kanato.xcworkspace                  # Kanato.xcodeproj + DevServer をまとめて開くワークスペース
 scripts/                            # download / convert / serve / eval / perform-service / check-model-artifacts
 docs/local-models.md                # ローカルモデル管理・推論基盤の設計
+Packages/LlamaCpp/                  # llama.cpp 公式 XCFramework（URL・チェックサム固定）と Swift ラッパー
 .models/                            # 開発用モデルの保存先（Git 管理外）
 ```
 
@@ -220,11 +222,13 @@ LLM クライアントはプロトコル `ChatCompletionClient` 経由でモッ�
 
 `KanaServiceProviderTests` では、DevServer の各 Mock Mode が返す実レスポンス（http500 / empty_choices / empty_content / invalid_json）とサーバー停止・タイムアウトを再生し、サービス失敗時に pasteboard の原文が保持されることを確認しています。
 
-`ModelManifestTests` / `ModelManagerTests` / `InferenceBackendTests` では、マニフェストの検証（パス逸脱・未固定 revision・ライセンス文書の欠落など）、ダウンロード後の SHA-256 検証、失敗時のクリーンアップと既存インストールの保持、改ざん検出、ライセンス未確認モデルの取得拒否（Release 方針）、未実装のローカル推論・無効な Embedded が明確なエラーになることを確認しています。
+`ModelManifestTests` / `ModelManagerTests` / `InferenceBackendTests` では、マニフェストの検証（パス逸脱・未固定 revision・ライセンス文書の欠落など）、ダウンロード後の SHA-256 検証、失敗時のクリーンアップと既存インストールの保持、改ざん検出、ライセンス未確認モデルの取得拒否（Release 方針）、無効な Embedded が明確なエラーになることを確認しています。
 
 `ZenzBackendTests` では、zenz 形式のプロンプト（カタカナ化・左文脈）、行ごとの変換と空白の保持、ASCII の素通し、長い行の分割、制御タグを含む出力の拒否を確認しています。
 
-2026-11-14 時点: **105 tests passed**（UI テンプレート 2 件含む）
+`LocalModelBackendTests` では、ローカル推論でのプロンプト形式（zenz v2 / v3）、読み込み済みエンジンの再利用と差し替え、未対応の形式（チャット・safetensors）・読み込み失敗が明確なエラーになることを確認しています。
+
+2026-11-14 時点: **113 tests passed**（UI テンプレート 2 件含む）
 
 ### Unit Tests（`DevServerTests`）
 
@@ -270,7 +274,7 @@ Debug ビルドの Kanato を起動引数で DevServer に向け、`NSPerformSer
 
 ### アプリ別対応状況（Integration）
 
-2026-11-13 に TextEdit で、DevServer（`normal`）を相手にメニュー表示から置換までを確認しました。空欄の項目とほかのアプリは未確認です（実機での手動確認が必要）。
+2026-11-13 に TextEdit で、DevServer（`normal`）を相手にメニュー表示から置換までを確認しました。2026-11-14 に VS Code・Claude・Codex・Slack でも変換できることを確認しました。ターミナルでは選択範囲が置き換わらず、変換結果が後ろに追加されます（既知の制約を参照）。空欄の項目とほかのアプリは未確認です（実機での手動確認が必要）。
 
 | アプリ | メニュー表示 | 取得 | 置換 | 範囲外不変 | Undo | 失敗時保持 |
 |---|---|---|---|---|---|---|
@@ -278,12 +282,17 @@ Debug ビルドの Kanato を起動引数で DevServer に向け、`NSPerformSer
 | メモ | | | | | | |
 | Safari 入力欄 | | | | | | |
 | Chrome 入力欄 | | | | | | |
-| VS Code | | | | | | |
+| VS Code | OK | OK | OK | | | |
+| Claude | OK | OK | OK | | | |
+| Codex | OK | OK | OK | | | |
+| Slack | OK | OK | OK | | | |
+| ターミナル | OK | OK | NG（選択範囲が残り、結果が追加される） | | | |
 
 ## 既知の制約
 
 - 変換中（最大約 13 秒）は呼び出し元アプリの UI がブロックされます（macOS Services の同期仕様による MVP の制約）。
 - サービスのエラーメッセージを表示するかは呼び出し元アプリ次第です。Kanato 側では失敗時にビープ音を鳴らします。
-- Services 非対応のアプリ（独自テキストエンジンの Electron アプリ等）では使えません。MVP では Accessibility API による代替は行いません。
+- Services に対応していないアプリでは使えません。MVP では Accessibility API による代替は行いません。
+- Kanato は選択したテキストを変換結果で置き換えるサービスのため、選択範囲の置き換えに対応していないアプリ（例: ターミナル）では、選択した文字が消えずに変換結果が入力として追加されます（例: `にほんごへんかん` → `にほんごへんかん日本語変換`）。
 - 署名なし（ad-hoc）でビルドし直すと、Keychain の API キーへのアクセス確認ダイアログが出ることがあります。
 - 一般配布用の Developer ID 署名・公証・DMG 作成は未対応（MVP 後の工程）。

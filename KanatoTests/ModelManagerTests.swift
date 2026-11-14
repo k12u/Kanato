@@ -42,7 +42,9 @@ enum ModelFixtures {
     static func model(
         id: String = "test-model",
         status: ModelManifest.RedistributionStatus = .unverified,
-        weightsHash: String? = nil
+        weightsHash: String? = nil,
+        format: ModelManifest.ModelFormat = .gguf,
+        promptFormat: ModelManifest.PromptFormat? = nil
     ) -> ModelManifest.Model {
         ModelManifest.Model(
             id: id,
@@ -58,9 +60,10 @@ enum ModelFixtures {
             ],
             license: .init(identifier: "Apache-2.0", documentPath: "LICENSE", redistribution: status, notes: nil),
             backend: .llamaCpp,
-            format: .gguf,
+            format: format,
             quantization: "Q4_K_M",
-            estimatedMemoryMB: 1024
+            estimatedMemoryMB: 1024,
+            promptFormat: promptFormat
         )
     }
 }

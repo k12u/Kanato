@@ -34,15 +34,18 @@ nonisolated enum DistributionMode: String, CaseIterable, Sendable {
 nonisolated enum ExternalAPIFormat: String, CaseIterable, Sendable {
     /// Chat Completions（`/chat/completions`）。汎用 LLM にシステムプロンプトで変換を指示する
     case chatCompletions = "chat"
-    /// zenz 形式の Completions（`/completions`）。かな漢字変換専用モデル zenz 向け
+    /// zenz v2 系の Completions（`/completions`）。かな漢字変換専用モデル zenz-v2.5 など
     case zenz
+    /// zenz v3 系の Completions（`/completions`）。zenz-v3.x
+    case zenzV3 = "zenz-v3"
 
     static let `default`: ExternalAPIFormat = .chatCompletions
 
     var displayName: String {
         switch self {
         case .chatCompletions: "Chat Completions（汎用LLM）"
-        case .zenz: "zenz（かな漢字変換モデル）"
+        case .zenz: "zenz v2（かな漢字変換モデル）"
+        case .zenzV3: "zenz v3（かな漢字変換モデル）"
         }
     }
 }
@@ -70,7 +73,9 @@ nonisolated struct InferenceBackendFactory: Sendable {
             case .chatCompletions:
                 return ExternalAPIBackend(client: makeClient(configuration))
             case .zenz:
-                return ZenzBackend(client: makeTextClient(configuration))
+                return ZenzBackend(client: makeTextClient(configuration), promptVersion: .v2)
+            case .zenzV3:
+                return ZenzBackend(client: makeTextClient(configuration), promptVersion: .v3)
             }
         case .embedded:
             return UnavailableBackend(error: .embeddedModeDisabled)

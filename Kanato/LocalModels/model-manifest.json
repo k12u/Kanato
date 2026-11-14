@@ -60,7 +60,9 @@
       "backend": "llama.cpp",
       "format": "safetensors",
       "quantization": "none (bf16)",
-      "estimatedMemoryMB": 1024
+      "estimatedMemoryMB": 1024,
+      "promptFormat": "zenz-v2",
+      "contextLength": 1024
     },
     {
       "id": "qwen3-1.7b-q8_0",
@@ -91,7 +93,8 @@
       "backend": "llama.cpp",
       "format": "gguf",
       "quantization": "Q8_0",
-      "estimatedMemoryMB": 2560
+      "estimatedMemoryMB": 2560,
+      "promptFormat": "chat"
     },
     {
       "id": "qwen3-4b-q4_k_m",
@@ -122,7 +125,44 @@
       "backend": "llama.cpp",
       "format": "gguf",
       "quantization": "Q4_K_M",
-      "estimatedMemoryMB": 3584
+      "estimatedMemoryMB": 3584,
+      "promptFormat": "chat"
+    },
+    {
+      "id": "zenz-v3.2-small",
+      "name": "zenz-v3.2-small (91M, Q5_K_M, かな漢字変換特化 GPT-2)",
+      "source": {
+        "repositoryURL": "https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf",
+        "revision": "ef3e66e3665fe6a19598e6578e9b88a994b647fd",
+        "downloadBaseURL": "https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf/resolve/ef3e66e3665fe6a19598e6578e9b88a994b647fd"
+      },
+      "files": [
+        {
+          "path": "ggml-model-Q5_K_M.gguf",
+          "sha256": "29c223d4c23327b80fd13ebb5ab2555057a46317997d5da391584ffbef0db673",
+          "size": 73871936
+        },
+        {
+          "path": "README.md",
+          "sha256": "3eebb43fe9330292a21e8e6158c9606bc65cc498bd10113dc15d130e08414e10",
+          "size": 29
+        }
+      ],
+      "license": {
+        "identifier": "CC-BY-SA-4.0",
+        "documentPath": "README.md",
+        "redistribution": "unverified",
+        "notes": "ライセンスはモデルカード (README.md) の記載。2026-11-14 アプリ内ローカル推論の最初の対象として登録"
+      },
+      "backend": "llama.cpp",
+      "format": "gguf",
+      "quantization": "Q5_K_M",
+      "estimatedMemoryMB": 256,
+      "promptFormat": "zenz-v3",
+      "contextLength": 1024,
+      "metadataOverrides": {
+        "tokenizer.ggml.pre": "gpt-2"
+      }
     }
   ]
 }

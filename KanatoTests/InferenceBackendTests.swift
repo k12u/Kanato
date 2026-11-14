@@ -75,8 +75,8 @@ struct InferenceBackendTests {
         await #expect(throws: InferenceBackendError.manifestUnavailable) { try await convert(.download, factory: factory) }
     }
 
-    /// モデルが揃っていても、エンジン未実装なら明確なエラーにし、外部 API へフォールバックしない
-    @Test func installedModelWithoutEngineFailsClearly() async throws {
+    /// チャット形式（プロンプト形式なし）のモデルはローカル推論に使えず、外部 API へはフォールバックしない
+    @Test func installedChatModelFailsClearly() async throws {
         let factory = makeFactory()
         try install(ModelFixtures.model(), using: factory.makeModelManager())
 
@@ -85,10 +85,11 @@ struct InferenceBackendTests {
             configuration: Self.configuration
         )
         #expect(backend is LocalModelBackend)
-        await #expect(throws: InferenceBackendError.localInferenceNotImplemented(.llamaCpp)) {
+        await #expect(throws: InferenceBackendError.unsupportedPromptFormat("test-model")) {
             try await backend.convert("てすと")
         }
-        #expect(LocalInferenceEngines.engineTypes.isEmpty)
+        #expect(LocalInferenceEngines.engineType(for: .llamaCpp).map(ObjectIdentifier.init) == ObjectIdentifier(LlamaCppEngine.self))
+        #expect(LocalInferenceEngines.engineType(for: .mlx) == nil)
     }
 
     @Test func savedSelectionDefaultsToExternal() throws {

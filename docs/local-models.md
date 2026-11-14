@@ -1,6 +1,6 @@
 # ローカルモデル管理・推論基盤
 
-将来のオンデバイス推論に向けた、モデル管理と推論バックエンドの構成。**2026-11-13 時点では、ローカル推論エンジンは未実装で、モデルも未選定**です。動作するのは External（外部 API）だけです。
+モデル管理と推論バックエンドの構成。2026-11-14 時点で、External（外部 API）と Download（アプリ内 llama.cpp + zenz-v3.2-small）が動作します。Embedded は無効です。
 
 ## 方針
 
@@ -87,11 +87,15 @@ protocol InferenceBackend: Sendable {
 | 型 | 内容 |
 |---|---|
 | `ExternalAPIBackend` | 既存の `OpenAICompatibleClient` + `ConversionService`（プロンプト・入出力検証） |
-| `LocalModelBackend` | 検証済みモデルディレクトリと `LocalInferenceEngine` を組み合わせる。エンジン未登録なら `localInferenceNotImplemented` |
+| `ZenzBackend` | zenz 形式のプロンプト（v2 / v3）・カタカナ化・ASCII の素通し・出力検証。クライアント（外部 API / ローカルエンジン）を差し替えて使う |
+| `LocalModelBackend` | 検証済みモデルディレクトリと `LocalInferenceEngine` を組み合わせ、`ZenzBackend` で変換する。エンジン未登録・未対応の形式は明確なエラー |
+| `LlamaCppEngine` | `LocalInferenceEngine` の llama.cpp 実装（`Packages/LlamaCpp` の `LlamaTextGenerator` を使う） |
 | `UnavailableBackend` | 選択された構成が使えない理由をそのままエラーにする |
 | `InferenceBackendFactory` | 設定（配布モード・Model ID）からバックエンドを生成する |
 
-`LocalInferenceEngine` は `ChatCompletionClient` を継承するため、ローカル推論でも外部 API と同じプロンプト・出力検証を通ります。エンジンを実装したら `LocalInferenceEngines.engineTypes` に登録します。
+`LocalInferenceEngine` は `TextCompletionClient` を継承するため、ローカル推論でも外部 API（zenz 形式）と同じ `ZenzBackend` のプロンプト・出力検証を通ります。エンジンを追加したら `LocalInferenceEngines.engineTypes` に登録します。読み込み済みのエンジンは `LocalEngineCache` が 1 つだけ保持し、モデルの削除・再ダウンロード時に解放します。
+
+Download モードで選べるのは、エンジンが対応する形式（GGUF）で、プロンプト形式が zenz のモデルだけです（`Model.supportsLocalInference`）。チャット形式のモデル（Qwen3 など）は External で使います。
 
 選択された構成が使えない場合（エンジン未実装・モデル未取得・Embedded 無効など）は、**外部 API へ暗黙にフォールバックせず**、サービスは元のテキストを保持したままエラーを返します。
 
@@ -100,7 +104,7 @@ protocol InferenceBackend: Sendable {
 | モード | 状態 | 内容 |
 |---|---|---|
 | External | **動作する（既定）** | ユーザーが設定した OpenAI 互換 API（LM Studio・DevServer・llama-server など）。API 形式は Chat Completions（汎用 LLM）と zenz を選べる |
-| Download | 管理基盤のみ | マニフェストのモデルを Application Support へ取得・検証する。推論エンジン未実装のため変換はエラー |
+| Download | **動作する** | マニフェストのモデルを設定画面から Application Support へ取得・検証し、アプリ内の llama.cpp で変換する。Release ビルドでは再配布可否が `verified` のモデルしか取得できない（現状の zenz-v3.2-small は `unverified` のため Debug のみ） |
 | Embedded | 無効 | モデル選定とライセンス確認（`verified`）後に有効化する。現在は常にエラー |
 
 設定画面の「推論バックエンド」、または起動引数（`-distributionMode download -localModelID <id>`）で切り替えます。
@@ -118,7 +122,24 @@ scripts/check-model-artifacts.sh path/to/Kanato.app    # ビルド済みアプ�
 
 リリース前（Archive 後）に実行してください。ビルドフェーズへの組み込みは Embedded を有効化するときに行います。
 
-## 推論エンジン候補の評価（未決定）
+## llama.cpp の組み込み（2026-11-14 決定）
+
+- `Packages/LlamaCpp`: 公式 XCFramework（b11669。Homebrew の llama-server と同じ版）を `binaryTarget(url:checksum:)` で固定し、C API を `LlamaTextGenerator` で包む。チェックサムは GitHub Release の digest と一致することを確認済み
+- Metal シェーダーはライブラリに埋め込み済み（`GGML_METAL_EMBED_LIBRARY`）。アプリの `Contents/Frameworks/llama.framework` として埋め込まれ、Debug ビルドのアプリは約 26 MB
+- 生成は貪欲法（temperature 0 相当）。生成ごとに KV キャッシュを消去し、トークン単位でキャンセルを確認する。llama.cpp のログはプロンプト本文を含みうるため出力しない
+- 公式の zenz v3 GGUF は `tokenizer.ggml.pre = gpt2-small-japanese-char` で、上流の llama.cpp は読み込めない（AzooKeyKanaKanjiConverter は独自の llama.cpp を使う）。マニフェストの `metadataOverrides` で `gpt-2` に上書きして読み込む
+- 実測（Apple Silicon 開発機、Debug ビルド、サービス経路）: 初回 0.44 秒（モデル読み込みを含む）、2 回目以降 0.06 秒。アプリ内ダウンロード + 検証 5.7 秒
+- パッケージ単体の結合テスト: `cd Packages/LlamaCpp && KANATO_TEST_ZENZ_GGUF=<GGUF のパス> swift test`
+
+マニフェストに追加した任意項目:
+
+| フィールド | 内容 |
+|---|---|
+| `promptFormat` | `zenz-v2` / `zenz-v3` / `chat` |
+| `contextLength` | 推論時のコンテキスト長（zenz は 1024） |
+| `metadataOverrides` | llama.cpp で読み込むときに上書きする GGUF メタデータ（文字列値） |
+
+## 推論エンジン候補の評価
 
 | 観点 | MLX Swift | llama.cpp |
 |---|---|---|
@@ -179,6 +200,18 @@ scripts/serve-model.sh zenz-v2.5-medium --port 8801
 
 補足:
 
-- zenz はチャットモデルではないため Chat Completions は使えない（API 形式「zenz」を使う）
+- zenz はチャットモデルではないため Chat Completions は使えない（API 形式「zenz v2」を使う。v3 系は「zenz v3」）
 - GGUF への変換時、`convert_hf_to_gguf.py` が前処理（pre-tokenizer）を判定できないため `gpt-2` を指定した（`convert-model-gguf.sh` が zenz-* に自動適用）。HF tokenizer とトークン列が一致すること、スクリプトでの変換結果が手動変換と同一ハッシュになることを確認済み
 - 2026-11-14 に Kanato の Debug ビルドを `-apiFormat zenz -baseURL http://127.0.0.1:8801/v1` で起動し、`perform-service` でサービス経路の変換を確認（ASCII 混じりの例文 0.30 秒、通常文 0.11〜0.15 秒）
+
+### zenz v3.2（2026-11-14 追記）
+
+公式 GGUF（Q5_K_M）を `--override-kv tokenizer.ggml.pre=str:gpt-2` 付きの llama-server で起動し、v3 形式（`[U+EE02 左文脈] U+EE00 入力 U+EE01`）で同じ 19 文を評価した（`eval-conversion.py` の形式 `zenz3`）。
+
+| モデル | サイズ | 完全一致 | 中央値 | 最大 |
+|---|---|---|---|---|
+| zenz-v2.5-medium（f16） | 622 MB | 17/19 | 76 ms | 292 ms |
+| zenz-v3.2-small（Q5_K_M） | 74 MB | 17/19 | 47 ms | 191 ms |
+| zenz-v3.2-xsmall（Q5_K_M） | 21 MB | 17/19 | 41 ms | 199 ms |
+
+誤りはいずれも同音異義語の 2 文（「きしゃのきしゃは…」「いしにいしを」）。公式 GGUF をそのまま取得できる zenz-v3.2-small をアプリ内推論の最初の対象にした。

@@ -14,7 +14,8 @@ import Foundation
 /// - 英字を含む ASCII の並び（"Apple Developer" など）はモデルに渡さずそのまま残す。
 ///   zenz はかなの読みを前提としており、ASCII を含めると出力が崩れるため
 /// - 分割したかなの部分には、同じ行でそれまでに変換した結果を左文脈として渡す
-///   （v2 系の形式: `U+EE00 入力 U+EE02 文脈 U+EE01`。AzooKeyKanaKanjiConverter の ZenzPromptBuilder と同じ）
+///   （v2 系: `U+EE00 入力 U+EE02 文脈 U+EE01`、v3 系: `U+EE02 文脈 U+EE00 入力 U+EE01`。
+///   AzooKeyKanaKanjiConverter の ZenzPromptBuilder と同じ）
 /// - コンテキスト長（1024 トークン、文字単位）を超えないよう、長い行は文末・読点で分割する
 nonisolated struct ZenzBackend: InferenceBackend {
     static let inputTag = "\u{EE00}"
@@ -27,7 +28,14 @@ nonisolated struct ZenzBackend: InferenceBackend {
     /// 制御タグ（私用領域）。出力に含まれていたら不正とみなす
     private static let reservedScalars: ClosedRange<Unicode.Scalar> = "\u{EE00}"..."\u{EEFF}"
 
+    /// zenz のバージョンごとのプロンプト形式
+    enum PromptVersion: Sendable {
+        case v2
+        case v3
+    }
+
     let client: any TextCompletionClient
+    var promptVersion: PromptVersion = .v2
     var validator = ConversionValidator(rejectsExplanationPrefixes: false)
 
     func convert(_ text: String) async throws -> String {
@@ -62,7 +70,7 @@ nonisolated struct ZenzBackend: InferenceBackend {
             for chunk in Self.chunks(of: text, limit: Self.maxChunkLength) {
                 try Task.checkCancellation()
                 let output = try await client.completeText(
-                    prompt: Self.prompt(for: chunk, leftContext: String(converted.suffix(Self.maxContextLength))),
+                    prompt: Self.prompt(for: chunk, leftContext: String(converted.suffix(Self.maxContextLength)), version: promptVersion),
                     maxTokens: chunk.count * 2 + 16
                 )
                 guard !output.unicodeScalars.contains(where: Self.reservedScalars.contains) else {
@@ -75,9 +83,13 @@ nonisolated struct ZenzBackend: InferenceBackend {
         return ConversionValidator.leadingWhitespace(of: line) + converted + ConversionValidator.trailingWhitespace(of: line)
     }
 
-    static func prompt(for text: String, leftContext: String = "") -> String {
+    static func prompt(for text: String, leftContext: String = "", version: PromptVersion = .v2) -> String {
         let input = inputTag + katakana(from: text)
-        return leftContext.isEmpty ? input + outputTag : input + contextTag + leftContext + outputTag
+        let context = leftContext.isEmpty ? "" : contextTag + leftContext
+        switch version {
+        case .v2: return input + context + outputTag
+        case .v3: return context + input + outputTag
+        }
     }
 
     enum Segment: Equatable {

@@ -116,6 +116,9 @@ struct ZenzBackendTests {
     @Test func buildsPromptWithLeftContext() {
         #expect(ZenzBackend.prompt(for: "も", leftContext: "Apple") == "\u{EE00}モ\u{EE02}Apple\u{EE01}")
         #expect(ZenzBackend.prompt(for: "も", leftContext: "") == "\u{EE00}モ\u{EE01}")
+        // v3 系は左文脈が入力より前
+        #expect(ZenzBackend.prompt(for: "も", leftContext: "Apple", version: .v3) == "\u{EE02}Apple\u{EE00}モ\u{EE01}")
+        #expect(ZenzBackend.prompt(for: "も", leftContext: "", version: .v3) == "\u{EE00}モ\u{EE01}")
     }
 
     @Test func segmentsASCIIWords() {

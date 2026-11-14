@@ -76,6 +76,31 @@ struct ModelManifestTests {
         #expect(throws: ModelManifestError.self) { try manifest([duplicate, duplicate]).validate() }
     }
 
+    @Test func bundledZenzV3ModelIsConfiguredForLlamaCpp() throws {
+        let bundled = try ModelManifest.loadBundled(from: Bundle(for: AppDelegate.self))
+        let zenz = try #require(bundled.model(id: "zenz-v3.2-small"))
+        #expect(zenz.format == .gguf)
+        #expect(zenz.promptFormat == .zenzV3)
+        #expect(zenz.contextLength == 1024)
+        #expect(zenz.metadataOverrides == ["tokenizer.ggml.pre": "gpt-2"])
+        // 再配布可否が確認されるまでは同梱対象にしない
+        #expect(!bundled.embeddableModels.contains { $0.id == zenz.id })
+    }
+
+    @Test func rejectsInvalidInferenceSettings() {
+        var model = ModelFixtures.model()
+        model.contextLength = 0
+        expectInvalid(model)
+
+        model = ModelFixtures.model()
+        model.metadataOverrides = [String(repeating: "k", count: 128): "v"]
+        expectInvalid(model)
+
+        model = ModelFixtures.model()
+        model.metadataOverrides = ["": "v"]
+        expectInvalid(model)
+    }
+
     @Test func rejectsUnsupportedSchemaVersion() {
         #expect(throws: ModelManifestError.unsupportedSchemaVersion(99)) {
             try ModelManifest.decode(Data(#"{"schemaVersion":99,"models":[]}"#.utf8))

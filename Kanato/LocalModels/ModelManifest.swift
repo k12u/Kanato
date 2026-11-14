@@ -39,6 +39,13 @@ nonisolated struct ModelManifest: Codable, Equatable, Sendable {
         var quantization: String
         /// 推論時に必要なおおよそのメモリ量（MB）
         var estimatedMemoryMB: Int
+        /// 変換に使うプロンプトの形式。nil は未定義（ローカル推論に使えない）
+        var promptFormat: PromptFormat?
+        /// 推論時のコンテキスト長（トークン数）。nil は既定値
+        var contextLength: Int?
+        /// 推論エンジンで読み込むときに上書きする GGUF メタデータ（文字列値）。
+        /// 例: 公式 zenz GGUF の tokenizer.ggml.pre は上流の llama.cpp が認識しないため "gpt-2" にする
+        var metadataOverrides: [String: String]?
 
         var totalSize: Int64 {
             files.reduce(0) { $0 + $1.size }
@@ -94,6 +101,16 @@ nonisolated struct ModelManifest: Codable, Equatable, Sendable {
             case .verified: "確認済み"
             }
         }
+    }
+
+    /// モデルへの入力（プロンプト）の形式
+    nonisolated enum PromptFormat: String, Codable, Sendable, CaseIterable {
+        /// zenz v2 系: U+EE00 入力 [U+EE02 左文脈] U+EE01
+        case zenzV2 = "zenz-v2"
+        /// zenz v3 系: [U+EE02 左文脈] U+EE00 入力 U+EE01
+        case zenzV3 = "zenz-v3"
+        /// 汎用 LLM（チャット形式 + システムプロンプト）
+        case chat
     }
 
     /// 推論バックエンド種別（候補）
@@ -196,6 +213,15 @@ nonisolated extension ModelManifest {
                 throw invalid("ライセンス文書がファイル一覧に含まれていません")
             }
             guard model.estimatedMemoryMB > 0 else { throw invalid("必要メモリが不正です") }
+            if let contextLength = model.contextLength, !(64...131_072).contains(contextLength) {
+                throw invalid("コンテキスト長が不正です")
+            }
+            for (key, value) in model.metadataOverrides ?? [:] {
+                // llama.cpp の kv override は キー・値とも 127 バイトまで
+                guard !key.isEmpty, key.utf8.count < 128, value.utf8.count < 128 else {
+                    throw invalid("メタデータの上書き指定が不正です: \(key)")
+                }
+            }
         }
     }
 
