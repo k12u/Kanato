@@ -5,105 +5,48 @@
 
 import SwiftUI
 
+/// 設定画面。
+///
+/// 標準はアプリ内のローカルモデル（マニフェストの既定モデル = zenz-v3.2-small）で、
+/// 未ダウンロードなら最上部に「ダウンロードして使う」を出す（このボタンが利用開始の意思表示）。
+/// 外部 API やほかのモデルは「詳細設定」の中に置き、外部 API への切り替えには確認を求める。
 struct SettingsView: View {
     @State private var settings = AppSettings()
     @State private var status: Status?
     @State private var isTesting = false
     /// 同梱のモデルマニフェスト（メタデータのみ）。読めない場合は nil
     @State private var manifest = try? ModelManifest.loadBundled()
-    @State private var localModels = LocalModelController()
+    @State private var localModels: LocalModelController
     @State private var isShowingLicenses = false
+    @State private var isShowingAdvanced = false
+    /// 確認待ちのモード変更（外部 API への切り替え）
+    @State private var pendingMode: DistributionMode?
 
     private enum Status {
         case success(String)
         case failure(String)
     }
 
-    /// 接続テストに使う短文
+    /// 動作テストに使う短文
     private static let testInput = "きょうはいいてんきです"
+
+    init(settings: AppSettings = AppSettings(), localModels: LocalModelController = LocalModelController()) {
+        _settings = State(initialValue: settings)
+        _localModels = State(initialValue: localModels)
+    }
 
     var body: some View {
         Form {
-            Section("推論バックエンド") {
-                Picker("モード", selection: $settings.distributionMode) {
-                    ForEach(DistributionMode.allCases, id: \.self) { mode in
-                        Text(mode.isEnabled ? mode.displayName : "\(mode.displayName)（未有効化）")
-                            .tag(mode)
-                    }
+            Section("かな漢字変換") {
+                primaryContent
+                if canRunTest {
+                    testRow
                 }
-                switch settings.distributionMode {
-                case .external:
-                    EmptyView()
-                case .download:
-                    localModelPicker
-                    if let model = selectedLocalModel {
-                        localModelStatus(model)
-                    }
-                case .embedded:
-                    Label(InferenceBackendError.embeddedModeDisabled.errorDescription ?? "",
-                          systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            Section("LLM接続（External）") {
-                Picker("API形式", selection: $settings.apiFormat) {
-                    ForEach(ExternalAPIFormat.allCases, id: \.self) { format in
-                        Text(format.displayName).tag(format)
-                    }
-                }
-                TextField("API Base URL", text: $settings.baseURL, prompt: Text(AppSettings.defaultBaseURL))
-                    .autocorrectionDisabled()
-                if settings.apiFormat != .chatCompletions {
-                    TextField("Model ID（任意）", text: $settings.model, prompt: Text("例: zenz-v2.5-medium"))
-                        .autocorrectionDisabled()
-                    Text("zenz は /completions で呼び出します（例: llama-server の http://127.0.0.1:8801/v1）")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    TextField("Model ID", text: $settings.model, prompt: Text("例: qwen2.5-7b-instruct"))
-                        .autocorrectionDisabled()
-                }
-                SecureField("API Key（任意）", text: $settings.apiKey)
-                Stepper(value: $settings.timeout, in: AppSettings.timeoutRange, step: 1) {
-                    LabeledContent("タイムアウト", value: "\(Int(settings.timeout)) 秒")
-                }
-                Toggle("temperature = 0 を送信する", isOn: $settings.sendTemperature)
-                Toggle("ローカルネットワーク（.local / プライベートIP）へのHTTPを許可", isOn: $settings.allowLocalNetworkHTTP)
             }
 
             Section {
-                if AppSettings.isRemote(baseURL: settings.baseURL) {
-                    Label("この接続先はlocalhostではありません。変換時、選択した文字列がこのサーバーへ送信されます。",
-                          systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                } else {
-                    Label("選択した文字列はこのMac上のLLMサーバーへのみ送信されます。", systemImage: "lock")
-                        .foregroundStyle(.secondary)
-                }
-                Text("APIキーはKeychainに保存されます。入力・変換テキストは保存・ログ記録されません。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                HStack {
-                    Button("接続テスト", action: runConnectionTest)
-                        .disabled(isTesting)
-                    if isTesting {
-                        ProgressView().controlSize(.small)
-                    }
-                    Spacer()
-                    Button("保存", action: save)
-                        .keyboardShortcut("s")
-                }
-                if let status {
-                    switch status {
-                    case .success(let message):
-                        Label(message, systemImage: "checkmark.circle").foregroundStyle(.green)
-                    case .failure(let message):
-                        Label(message, systemImage: "xmark.octagon").foregroundStyle(.red)
-                    }
+                DisclosureGroup("詳細設定", isExpanded: $isShowingAdvanced) {
+                    advancedContent
                 }
             }
 
@@ -113,28 +56,243 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "外部 API に切り替えますか？",
+            isPresented: Binding(get: { pendingMode != nil }, set: { if !$0 { pendingMode = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("外部 API に切り替える") {
+                if let pendingMode { settings.distributionMode = pendingMode }
+                pendingMode = nil
+            }
+            Button("キャンセル", role: .cancel) { pendingMode = nil }
+        } message: {
+            Text("外部 API を使うと、変換のたびに選択した文字列を設定したサーバーへ送信します。標準のローカルモデル（この Mac 上で変換）は使われなくなります。切り替えは「保存」で確定します。")
+        }
         .sheet(isPresented: $isShowingLicenses) {
             LicensesView(models: localInferenceModels)
         }
-        .frame(minWidth: 480, minHeight: 420)
+        .onAppear { localModels.refresh(localInferenceModels) }
+        .frame(minWidth: 520, minHeight: 460)
+    }
+
+    // MARK: - かな漢字変換（標準）
+
+    @ViewBuilder
+    private var primaryContent: some View {
+        switch settings.distributionMode {
+        case .download:
+            if let model = selectedLocalModel {
+                localModelContent(model)
+            } else {
+                Label("ローカルモデルが見つかりません。詳細設定で選択してください。", systemImage: "xmark.octagon")
+                    .foregroundStyle(.red)
+            }
+        case .external:
+            externalSummary
+        case .embedded:
+            Label(InferenceBackendError.embeddedModeDisabled.errorDescription ?? "", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+        }
     }
 
     @ViewBuilder
-    private var localModelPicker: some View {
-        let models = localInferenceModels
-        if models.isEmpty {
-            Text("ローカル推論に使えるモデルはマニフェストに登録されていません")
-                .foregroundStyle(.secondary)
-        } else {
-            Picker("モデル", selection: $settings.localModelID) {
-                Text("未選択").tag("")
-                ForEach(models) { model in
-                    Text(model.name).tag(model.id)
-                }
+    private func localModelContent(_ model: ModelManifest.Model) -> some View {
+        if localModels.downloadingModelID == model.id {
+            HStack {
+                ProgressView().controlSize(.small)
+                Text("\(model.id) をダウンロードしています…")
+                Spacer()
+                Button("キャンセル") { localModels.cancelDownload() }
             }
-            .onAppear { localModels.refresh(models) }
+        } else {
+            switch localModels.state(of: model) {
+            case .notInstalled:
+                onboardingCard(model)
+            case .installed:
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(model.id) で変換します")
+                        Text("この Mac 上で変換します。選択した文字列は外部に送信されません。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                }
+                ModelAttributionView(model: model)
+            case .outdated, .incomplete:
+                HStack {
+                    Label("モデルの更新が必要です", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                    Spacer()
+                    Button("更新する（再ダウンロード）") { download(model) }
+                        .disabled(!localModels.isAvailable)
+                }
+                ModelAttributionView(model: model)
+            }
+        }
+        if let message = localModels.errorMessage {
+            Label(message, systemImage: "xmark.octagon").foregroundStyle(.red)
         }
     }
+
+    /// 初回の案内。「ダウンロードして使う」を押すことが利用開始の意思表示になる
+    private func onboardingCard(_ model: ModelManifest.Model) -> some View {
+        let size = ByteCountFormatter.string(fromByteCount: model.totalSize, countStyle: .file)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("はじめに、変換モデルをダウンロードしてください")
+                .font(.headline)
+            Text("Kanato はかな漢字変換専用モデル「\(model.id)」を使い、この Mac 上で変換します。選択した文字列は外部に送信されません。")
+                .fixedSize(horizontal: false, vertical: true)
+            ModelAttributionView(model: model)
+            Button {
+                download(model)
+            } label: {
+                Text("ダウンロードして使う（\(size)）")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!localModels.isAvailable || localModels.downloadingModelID != nil)
+            Text("ボタンを押すと、Hugging Face の公式リポジトリからモデル（\(model.license.identifier)）を取得してこの Mac に保存し、標準の変換エンジンとして設定します。推論時のメモリは約 \(model.estimatedMemoryMB) MB です。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if model.license.downloadUseStatus != .verified {
+                Label("このモデルはライセンスの確認が\(model.license.downloadUseStatus.displayName)のため、開発用（Debug）ビルドでのみ取得できます。",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// 外部 API を使っているときの概要。標準に戻す操作をここに置く
+    @ViewBuilder
+    private var externalSummary: some View {
+        let isRemote = AppSettings.isRemote(baseURL: settings.baseURL)
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("外部 API で変換します")
+                Text(isRemote
+                     ? "選択した文字列を \(settings.baseURL) へ送信します。"
+                     : "選択した文字列はこの Mac 上の LLM サーバーへ送信します。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: isRemote ? "exclamationmark.triangle.fill" : "server.rack")
+                .foregroundStyle(isRemote ? .orange : .secondary)
+        }
+        if hasUnsavedModeChange {
+            Text("変更は未保存です。詳細設定の「保存」で確定します。")
+                .font(.footnote)
+                .foregroundStyle(.orange)
+        }
+        if let model = defaultLocalModel {
+            Button("標準（\(model.id)・この Mac 上で変換）に戻す") { returnToDefault(model) }
+        }
+    }
+
+    private var testRow: some View {
+        VStack(alignment: .leading) {
+            HStack {
+                Button("動作テスト", action: runConnectionTest)
+                    .disabled(isTesting)
+                if isTesting {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            if let status {
+                switch status {
+                case .success(let message):
+                    Label(message, systemImage: "checkmark.circle").foregroundStyle(.green)
+                case .failure(let message):
+                    Label(message, systemImage: "xmark.octagon").foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    // MARK: - 詳細設定
+
+    @ViewBuilder
+    private var advancedContent: some View {
+        Picker("変換エンジン", selection: modeBinding) {
+            Text("ローカルモデル（この Mac 上で変換）").tag(DistributionMode.download)
+            Text("外部 API（OpenAI 互換サーバー）").tag(DistributionMode.external)
+        }
+
+        if settings.distributionMode == .download {
+            if localInferenceModels.count > 1 {
+                Picker("モデル", selection: $settings.localModelID) {
+                    ForEach(localInferenceModels) { model in
+                        Text(model.id == defaultLocalModel?.id ? "\(model.id)（標準）" : model.id).tag(model.id)
+                    }
+                }
+            }
+            if let model = selectedLocalModel, localModels.state(of: model) != .notInstalled {
+                HStack {
+                    Text("\(model.id)（\(ByteCountFormatter.string(fromByteCount: model.totalSize, countStyle: .file))）")
+                    Spacer()
+                    Button("モデルを削除", role: .destructive) { localModels.delete(model) }
+                        .disabled(localModels.downloadingModelID != nil)
+                }
+            }
+        } else {
+            externalSettings
+        }
+
+        Stepper(value: $settings.timeout, in: AppSettings.timeoutRange, step: 1) {
+            LabeledContent("タイムアウト", value: "\(Int(settings.timeout)) 秒")
+        }
+        HStack {
+            Spacer()
+            Button("保存", action: save)
+                .keyboardShortcut("s")
+        }
+    }
+
+    @ViewBuilder
+    private var externalSettings: some View {
+        Picker("API形式", selection: $settings.apiFormat) {
+            ForEach(ExternalAPIFormat.allCases, id: \.self) { format in
+                Text(format.displayName).tag(format)
+            }
+        }
+        TextField("API Base URL", text: $settings.baseURL, prompt: Text(AppSettings.defaultBaseURL))
+            .autocorrectionDisabled()
+        if settings.apiFormat != .chatCompletions {
+            TextField("Model ID（任意）", text: $settings.model, prompt: Text("例: zenz-v2.5-medium"))
+                .autocorrectionDisabled()
+        } else {
+            TextField("Model ID", text: $settings.model, prompt: Text("例: qwen2.5-7b-instruct"))
+                .autocorrectionDisabled()
+        }
+        SecureField("API Key（任意）", text: $settings.apiKey)
+        Toggle("temperature = 0 を送信する", isOn: $settings.sendTemperature)
+        Toggle("ローカルネットワーク（.local / プライベートIP）へのHTTPを許可", isOn: $settings.allowLocalNetworkHTTP)
+        Text("APIキーはKeychainに保存されます。入力・変換テキストは保存・ログ記録されません。")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+    }
+
+    /// 外部 API への切り替えは確認ダイアログを経由する
+    private var modeBinding: Binding<DistributionMode> {
+        Binding(
+            get: { settings.distributionMode },
+            set: { newMode in
+                if newMode == .external && settings.distributionMode != .external {
+                    pendingMode = newMode
+                } else {
+                    settings.distributionMode = newMode
+                }
+            }
+        )
+    }
+
+    // MARK: - Models
 
     /// ローカル推論で実行できるモデル（zenz の GGUF）
     private var localInferenceModels: [ModelManifest.Model] {
@@ -145,50 +303,38 @@ struct SettingsView: View {
         localInferenceModels.first { $0.id == settings.localModelID }
     }
 
-    /// 選択中のモデルの状態・ライセンス・取得 / 削除ボタン
-    @ViewBuilder
-    private func localModelStatus(_ model: ModelManifest.Model) -> some View {
-        let size = ByteCountFormatter.string(fromByteCount: model.totalSize, countStyle: .file)
-        LabeledContent("サイズ / 必要メモリ", value: "\(size) / 約 \(model.estimatedMemoryMB) MB")
-        ModelAttributionView(model: model)
-        if model.license.downloadUseStatus != .verified {
-            Label("このモデルはライセンスの確認が\(model.license.downloadUseStatus.displayName)のため、開発用（Debug）ビルドでのみ取得できます。",
-                  systemImage: "exclamationmark.triangle")
-                .font(.footnote)
-                .foregroundStyle(.orange)
-        }
+    private var defaultLocalModel: ModelManifest.Model? {
+        localInferenceModels.first { $0.id == manifest?.defaultModelID }
+    }
 
-        HStack {
-            if localModels.downloadingModelID == model.id {
-                ProgressView().controlSize(.small)
-                Text("ダウンロード中…").foregroundStyle(.secondary)
-                Spacer()
-                Button("キャンセル") { localModels.cancelDownload() }
-            } else {
-                switch localModels.state(of: model) {
-                case .installed:
-                    Label("ダウンロード済み", systemImage: "checkmark.circle").foregroundStyle(.green)
-                    Spacer()
-                    Button("削除", role: .destructive) { localModels.delete(model) }
-                case .notInstalled:
-                    Text("未ダウンロード").foregroundStyle(.secondary)
-                    Spacer()
-                    Button("ダウンロード（\(size)）") { localModels.download(model) }
-                        .disabled(localModels.downloadingModelID != nil || !localModels.isAvailable)
-                case .outdated, .incomplete:
-                    Label("更新が必要です", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                    Spacer()
-                    Button("再ダウンロード") { localModels.download(model) }
-                        .disabled(localModels.downloadingModelID != nil || !localModels.isAvailable)
-                }
-            }
+    /// ローカルモデルが未ダウンロード（またはダウンロード中）のときは、動作テストを出さない
+    private var canRunTest: Bool {
+        guard settings.distributionMode == .download, let model = selectedLocalModel else { return true }
+        return localModels.downloadingModelID != model.id && localModels.state(of: model) != .notInstalled
+    }
+
+    private var hasUnsavedModeChange: Bool {
+        settings.distributionMode != AppSettings.loadBackendSelection().mode
+    }
+
+    // MARK: - Actions
+
+    /// ダウンロードが成功したら、このモデルを使う設定として保存する
+    private func download(_ model: ModelManifest.Model) {
+        status = nil
+        localModels.download(model) {
+            settings.distributionMode = .download
+            settings.localModelID = model.id
+            settings.saveBackendSelection()
         }
-        if let message = localModels.errorMessage {
-            Label(message, systemImage: "xmark.octagon").foregroundStyle(.red)
-        }
-        Text("モデルはこの Mac の Application Support に保存され、変換はこの Mac 上で行われます。")
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+    }
+
+    private func returnToDefault(_ model: ModelManifest.Model) {
+        settings.distributionMode = .download
+        settings.localModelID = model.id
+        settings.saveBackendSelection()
+        status = nil
+        localModels.refresh(localInferenceModels)
     }
 
     private func save() {
@@ -199,7 +345,7 @@ struct SettingsView: View {
         }
     }
 
-    /// 画面上の (未保存を含む) 設定で実際に小さな変換リクエストを送る
+    /// 画面上の (未保存を含む) 設定で実際に小さな変換を行う
     private func runConnectionTest() {
         let backend = InferenceBackendFactory().makeBackend(
             selection: settings.backendSelection,
@@ -219,6 +365,16 @@ struct SettingsView: View {
     }
 }
 
-#Preview {
+#Preview("保存済みの設定") {
     SettingsView()
+}
+
+#Preview("新規ユーザー") {
+    let defaults = UserDefaults(suiteName: "org.k12u.Kanato.preview.new-user")!
+    defaults.removePersistentDomain(forName: "org.k12u.Kanato.preview.new-user")
+    let emptyModels = FileManager.default.temporaryDirectory.appending(path: "kanato-preview-models-\(UUID().uuidString)")
+    return SettingsView(
+        settings: AppSettings(defaults: defaults),
+        localModels: LocalModelController(manager: ModelManager(rootDirectory: emptyModels))
+    )
 }

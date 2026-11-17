@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "defaultModelID": "zenz-v3.2-small",
   "models": [
     {
       "id": "zenz-v2.5-medium",

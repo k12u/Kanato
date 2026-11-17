@@ -13,6 +13,8 @@ nonisolated struct ModelManifest: Codable, Equatable, Sendable {
     static let resourceName = "model-manifest"
 
     var schemaVersion: Int
+    /// 新規ユーザーに既定で使ってもらうモデル（アプリ内推論で実行できること）
+    var defaultModelID: String?
     var models: [Model]
 
     func model(id: String) -> Model? {
@@ -194,6 +196,9 @@ nonisolated extension ModelManifest {
     func validate() throws {
         guard schemaVersion == Self.supportedSchemaVersion else {
             throw ModelManifestError.unsupportedSchemaVersion(schemaVersion)
+        }
+        if let defaultModelID, model(id: defaultModelID) == nil {
+            throw ModelManifestError.invalid(modelID: defaultModelID, reason: "既定のモデルがマニフェストにありません")
         }
         var seenIDs = Set<String>()
         for model in models {

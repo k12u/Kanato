@@ -54,6 +54,14 @@ nonisolated enum InferenceBackendError: LocalizedError, Equatable, Sendable {
     case unsupportedModelFormat(ModelManifest.ModelFormat)
     case modelLoadFailed(String)
 
+    /// 設定画面での操作（ダウンロード・モデル選択）で解消できるエラーか
+    var requiresUserSetup: Bool {
+        switch self {
+        case .localModelNotSelected, .modelNotInManifest, .modelNotInstalled, .modelOutdated: true
+        default: false
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .localInferenceNotImplemented(let kind):
@@ -62,7 +70,7 @@ nonisolated enum InferenceBackendError: LocalizedError, Equatable, Sendable {
             "Embedded モードは未有効化です（モデル選定とライセンス確認後に有効化されます）"
         case .localModelNotSelected: "ローカルモデルが選択されていません"
         case .modelNotInManifest(let id): "モデル \(id) はモデルマニフェストに登録されていません"
-        case .modelNotInstalled(let id): "モデル \(id) はダウンロードされていません"
+        case .modelNotInstalled(let id): "モデル \(id) はダウンロードされていません。Kanato の設定画面からダウンロードしてください"
         case .modelOutdated(let id): "モデル \(id) はマニフェストと一致しません。再ダウンロードしてください"
         case .manifestUnavailable: "モデルマニフェストを読み込めません"
         case .unsupportedPromptFormat(let id): "モデル \(id) の形式はローカル推論に未対応です（対応: zenz）"

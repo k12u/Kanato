@@ -13,6 +13,8 @@ final class AppSettings {
     nonisolated static let defaultTimeout: TimeInterval = 8
     /// サービスの NSTimeout (15 秒) より必ず短くする
     nonisolated static let timeoutRange: ClosedRange<TimeInterval> = 1...12
+    /// 新規ユーザーに既定で使ってもらうモデル（同梱マニフェストの defaultModelID）
+    nonisolated static let defaultLocalModelID: String? = (try? ModelManifest.loadBundled())?.defaultModelID
 
     private nonisolated enum Keys {
         static let baseURL = "baseURL"
@@ -80,6 +82,13 @@ final class AppSettings {
         return APIKeyStore.save(apiKey)
     }
 
+    /// 推論バックエンドの選択だけを保存する（初回のダウンロード完了時・標準に戻すとき）。
+    /// 画面上のほかの未保存の値は保存しない
+    func saveBackendSelection(defaults: UserDefaults = .standard) {
+        defaults.set(distributionMode.rawValue, forKey: Keys.distributionMode)
+        defaults.set(localModelID.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Keys.localModelID)
+    }
+
     /// 保存済みの接続設定を読み出す（サービス実行時に毎回呼ぶ）
     nonisolated static func loadConfiguration(
         defaults: UserDefaults = .standard,
@@ -98,11 +107,26 @@ final class AppSettings {
     }
 
     /// 保存済みの推論バックエンドの選択を読み出す（サービス実行時に毎回呼ぶ）。
-    /// 不明な値は既定（External）として扱う
-    nonisolated static func loadBackendSelection(defaults: UserDefaults = .standard) -> BackendSelection {
-        BackendSelection(
-            mode: defaults.string(forKey: Keys.distributionMode).flatMap(DistributionMode.init(rawValue:)) ?? .default,
-            localModelID: defaults.string(forKey: Keys.localModelID) ?? "",
+    ///
+    /// モードが保存されていない（または不明な値の）場合:
+    /// - 外部 API の Model ID を保存済みの既存ユーザーは External のまま（勝手に切り替えない）
+    /// - それ以外（新規ユーザー）は Download + 既定モデル（zenz-v3.2-small）
+    nonisolated static func loadBackendSelection(
+        defaults: UserDefaults = .standard,
+        defaultModelID: String? = defaultLocalModelID
+    ) -> BackendSelection {
+        let mode: DistributionMode
+        if let stored = defaults.string(forKey: Keys.distributionMode).flatMap(DistributionMode.init(rawValue:)) {
+            mode = stored
+        } else if defaults.string(forKey: Keys.model)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            mode = .external
+        } else {
+            mode = .download
+        }
+        let storedModelID = defaults.string(forKey: Keys.localModelID)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return BackendSelection(
+            mode: mode,
+            localModelID: storedModelID.isEmpty ? (defaultModelID ?? "") : storedModelID,
             externalFormat: defaults.string(forKey: Keys.apiFormat).flatMap(ExternalAPIFormat.init(rawValue:)) ?? .default
         )
     }

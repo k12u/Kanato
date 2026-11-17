@@ -92,13 +92,55 @@ struct InferenceBackendTests {
         #expect(LocalInferenceEngines.engineType(for: .mlx) == nil)
     }
 
-    @Test func savedSelectionDefaultsToExternal() throws {
-        let defaults = try #require(UserDefaults(suiteName: "org.k12u.KanatoTests.\(UUID().uuidString)"))
-        #expect(AppSettings.loadBackendSelection(defaults: defaults).mode == .external)
+    private func makeDefaults() throws -> UserDefaults {
+        try #require(UserDefaults(suiteName: "org.k12u.KanatoTests.\(UUID().uuidString)"))
+    }
+
+    /// 新規ユーザー（何も保存していない）は、既定モデルのローカル推論から始まる
+    @Test func newUserDefaultsToDefaultLocalModel() throws {
+        let defaults = try makeDefaults()
+        #expect(AppSettings.loadBackendSelection(defaults: defaults, defaultModelID: "zenz-default")
+                == BackendSelection(mode: .download, localModelID: "zenz-default"))
+        // 不明なモード値も未保存と同じ扱い
         defaults.set("no-such-mode", forKey: "distributionMode")
-        #expect(AppSettings.loadBackendSelection(defaults: defaults).mode == .external)
+        #expect(AppSettings.loadBackendSelection(defaults: defaults, defaultModelID: "zenz-default").mode == .download)
+    }
+
+    /// 以前のバージョンで外部 API の Model ID を保存したユーザーは External のまま（勝手に切り替えない）
+    @Test func existingExternalUserIsKept() throws {
+        let defaults = try makeDefaults()
+        defaults.set("kanafilter-mock", forKey: "model")
+        #expect(AppSettings.loadBackendSelection(defaults: defaults, defaultModelID: "zenz-default").mode == .external)
+    }
+
+    @Test func savedSelectionIsRespected() throws {
+        let defaults = try makeDefaults()
         defaults.set("download", forKey: "distributionMode")
         defaults.set("test-model", forKey: "localModelID")
-        #expect(AppSettings.loadBackendSelection(defaults: defaults) == BackendSelection(mode: .download, localModelID: "test-model"))
+        #expect(AppSettings.loadBackendSelection(defaults: defaults, defaultModelID: "zenz-default")
+                == BackendSelection(mode: .download, localModelID: "test-model"))
+        defaults.set("external", forKey: "distributionMode")
+        #expect(AppSettings.loadBackendSelection(defaults: defaults, defaultModelID: "zenz-default").mode == .external)
+    }
+
+    /// 初回のダウンロード完了時はモードとモデルだけを保存し、ほかの未保存の値は保存しない
+    @Test func saveBackendSelectionStoresOnlySelection() throws {
+        let defaults = try makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.baseURL = "http://example.invalid/v1"
+        settings.distributionMode = .download
+        settings.localModelID = "zenz-default"
+        settings.saveBackendSelection(defaults: defaults)
+        #expect(defaults.string(forKey: "distributionMode") == "download")
+        #expect(defaults.string(forKey: "localModelID") == "zenz-default")
+        #expect(defaults.string(forKey: "baseURL") == nil)
+    }
+
+    @Test func setupErrorsAreClassified() {
+        #expect(InferenceBackendError.modelNotInstalled("m").requiresUserSetup)
+        #expect(InferenceBackendError.modelOutdated("m").requiresUserSetup)
+        #expect(InferenceBackendError.localModelNotSelected.requiresUserSetup)
+        #expect(!InferenceBackendError.modelLoadFailed("m").requiresUserSetup)
+        #expect(!InferenceBackendError.embeddedModeDisabled.requiresUserSetup)
     }
 }
