@@ -36,7 +36,8 @@ final class LocalModelController {
         }
     }
 
-    func download(_ model: ModelManifest.Model) {
+    /// - Parameter onInstalled: 検証・配置まで成功したときに呼ぶ（初回は設定の保存に使う）
+    func download(_ model: ModelManifest.Model, onInstalled: @escaping () -> Void = {}) {
         guard let manager, downloadingModelID == nil else { return }
         downloadingModelID = model.id
         errorMessage = nil
@@ -45,6 +46,7 @@ final class LocalModelController {
                 try await manager.download(model)
                 // 古いファイルを参照しているエンジンを解放する
                 LocalEngineCache.shared.removeAll()
+                onInstalled()
             } catch is CancellationError {
                 // キャンセル時は何も表示しない（一時ファイルは ModelManager が削除する）
             } catch {

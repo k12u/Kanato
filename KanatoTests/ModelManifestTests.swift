@@ -135,6 +135,23 @@ struct ModelManifestTests {
         expectInvalid(model)
     }
 
+    /// 既定モデルはアプリ内推論で実行でき、Release ビルドでも取得できること
+    @Test func defaultModelIsLocallyRunnableAndDownloadable() throws {
+        let bundled = try ModelManifest.loadBundled(from: Bundle(for: AppDelegate.self))
+        let id = try #require(bundled.defaultModelID)
+        let model = try #require(bundled.model(id: id))
+        #expect(id == "zenz-v3.2-small")
+        #expect(model.supportsLocalInference)
+        #expect(model.license.downloadUseStatus == .verified)
+        #expect(AppSettings.defaultLocalModelID == id)
+    }
+
+    @Test func rejectsUnknownDefaultModel() {
+        var invalid = manifest([ModelFixtures.model()])
+        invalid.defaultModelID = "no-such-model"
+        #expect(throws: ModelManifestError.self) { try invalid.validate() }
+    }
+
     @Test func rejectsUnsupportedSchemaVersion() {
         #expect(throws: ModelManifestError.unsupportedSchemaVersion(99)) {
             try ModelManifest.decode(Data(#"{"schemaVersion":99,"models":[]}"#.utf8))

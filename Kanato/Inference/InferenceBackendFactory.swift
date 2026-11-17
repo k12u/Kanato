@@ -14,7 +14,6 @@ nonisolated enum DistributionMode: String, CaseIterable, Sendable {
     /// ビルド時に確認済みモデルを同梱する。モデル選定とライセンス確認後に有効化する
     case embedded
 
-    static let `default`: DistributionMode = .external
 
     var displayName: String {
         switch self {

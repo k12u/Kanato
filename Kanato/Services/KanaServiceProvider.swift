@@ -18,16 +18,20 @@ final class KanaServiceProvider: NSObject {
 
     private let loadConfiguration: () -> LLMConfiguration
     private let makeBackend: (LLMConfiguration) -> any InferenceBackend
+    /// モデル未ダウンロードなど、設定画面で解消できる失敗のときに呼ぶ（設定画面を開く）
+    private let onSetupRequired: () -> Void
 
     /// テストでは接続設定と推論バックエンドを差し替える
     init(
         loadConfiguration: @escaping () -> LLMConfiguration = { AppSettings.loadConfiguration() },
         makeBackend: @escaping (LLMConfiguration) -> any InferenceBackend = {
             InferenceBackendFactory().makeBackend(selection: AppSettings.loadBackendSelection(), configuration: $0)
-        }
+        },
+        onSetupRequired: @escaping () -> Void = {}
     ) {
         self.loadConfiguration = loadConfiguration
         self.makeBackend = makeBackend
+        self.onSetupRequired = onSetupRequired
         super.init()
     }
 
@@ -67,6 +71,10 @@ final class KanaServiceProvider: NSObject {
         case .failure(let conversionError):
             Self.logger.error("Service failed after \(ContinuousClock.now - invokedAt, privacy: .public)")
             fail(conversionError, error: error)
+            if (conversionError as? InferenceBackendError)?.requiresUserSetup == true {
+                // サービスの応答を返してから設定画面を開く（呼び出し元アプリをブロックしない）
+                DispatchQueue.main.async(execute: onSetupRequired)
+            }
         }
     }
 

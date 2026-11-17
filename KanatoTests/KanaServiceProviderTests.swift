@@ -107,6 +107,52 @@ struct KanaServiceProviderTests {
         #expect(result.error == nil)
     }
 
+    /// モデル未ダウンロードで変換できないときは、原文を残したうえで設定画面を開く
+    @Test func opensSettingsWhenModelIsNotInstalled() async throws {
+        var opened = 0
+        let provider = KanaServiceProvider(
+            loadConfiguration: { Self.configuration },
+            makeBackend: { _ in UnavailableBackend(error: .modelNotInstalled("zenz-v3.2-small")) },
+            onSetupRequired: { opened += 1 }
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("org.k12u.Kanato.tests.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("てすと", forType: .string)
+        var message: NSString?
+        provider.convertKana(pasteboard, userData: nil, error: &message)
+
+        #expect(pasteboard.string(forType: .string) == "てすと")
+        #expect((message as String?)?.contains("ダウンロードされていません") == true)
+        // 設定画面はサービスの応答を返した後（メインキューの次の周回）で開く
+        #expect(opened == 0)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(opened == 1)
+    }
+
+    @Test func doesNotOpenSettingsOnNetworkFailure() async throws {
+        var opened = 0
+        DevServerReplayURLProtocol.reply = .failure(.cannotConnectToHost)
+        let provider = KanaServiceProvider(
+            loadConfiguration: { Self.configuration },
+            makeBackend: { configuration in
+                let sessionConfiguration = URLSessionConfiguration.ephemeral
+                sessionConfiguration.protocolClasses = [DevServerReplayURLProtocol.self]
+                return ExternalAPIBackend(client: OpenAICompatibleClient(
+                    configuration: configuration, session: URLSession(configuration: sessionConfiguration)
+                ))
+            },
+            onSetupRequired: { opened += 1 }
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("org.k12u.Kanato.tests.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.setString("てすと", forType: .string)
+        var message: NSString?
+        provider.convertKana(pasteboard, userData: nil, error: &message)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(opened == 0)
+    }
+
     @Test(arguments: DevServerMode.allCases)
     func keepsOriginalSelectionOnFailure(mode: DevServerMode) {
         DevServerReplayURLProtocol.reply = mode.reply
