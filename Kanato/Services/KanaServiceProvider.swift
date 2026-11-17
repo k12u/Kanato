@@ -108,7 +108,9 @@ nonisolated enum BlockingBridge {
         let semaphore = DispatchSemaphore(value: 0)
         let box = ResultBox<T>()
 
-        let task = Task.detached {
+        // セマフォ待ちは優先度を引き継がないため、呼び出し元スレッドの QoS で実行して優先度逆転を避ける
+        let callerPriority = TaskPriority(rawValue: UInt8(qos_class_self().rawValue))
+        let task = Task.detached(priority: callerPriority) {
             do {
                 box.set(.success(try await operation()))
             } catch {
